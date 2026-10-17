@@ -33,4 +33,3 @@ curl http://127.0.0.1/healthz
 ```
 
 This uses a standalone Bun server and does not require or modify the Telegram bot's directories or systemd units. It serves plain HTTP directly; a custom domain and HTTPS certificate can be added separately if needed.
-# thadingyut
