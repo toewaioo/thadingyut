@@ -23,6 +23,12 @@
       </svg>
       <span class="badge" id="wishesBadge" style="display:none">0</span>
     </button>
+    <button class="tl-btn" id="photoBtn" title="ဓာတ်ပုံမုဒ်" aria-label="Photo mode">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h3l2-3h6l2 3h3a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><circle cx="12" cy="13" r="3.5"/></svg>
+    </button>
+    <button class="tl-btn" id="linkShareBtn" title="Link Sharing" aria-label="Share a link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.1 0l3-3a5 5 0 0 0-7.1-7.1l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.1 0l-3 3A5 5 0 0 0 11 21.1l1.7-1.7"/></svg>
+    </button>
   </div>
 
   <div class="status">
@@ -32,14 +38,29 @@
 
   <div class="follow-badge" id="followBadge">မီးပုံးကို လိုက်ကြည့်နေသည်</div>
 
-  <button class="launch-fab" id="launchFab">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 19V5M5 12l7-7 7 7"/>
-    </svg>
-    မီးပုံးလွှတ်မည်
-  </button>
+  <div class="scene-actions">
+    <button class="offer-lamp-fab" id="offerLampFab" title="ဆီမီးလှူမည်">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c1.9 2.1 2.2 3.6 1.3 5.1-.4.7-1.1 1.1-1.3 1.8-.5-1.1-1.7-1.7-1.7-3.1C10.3 5.6 11.1 4.4 12 3Z"/><path d="M5 13.5h14l-1.5 5h-11L5 13.5Z"/><path d="M4 13.5c2.2-1.7 4.7-2.5 8-2.5s5.8.8 8 2.5M7 21h10"/></svg>
+      ဆီမီးလှူမည်
+    </button>
+    <button class="launch-fab" id="launchFab">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 19V5M5 12l7-7 7 7"/>
+      </svg>
+      မီးပုံးလွှတ်မည်
+    </button>
+  </div>
 
   <div class="toast" id="toast"></div>
+</div>
+
+<div class="photo-tools" id="photoTools" role="toolbar" aria-label="Photo mode controls">
+  <button id="photoCaptureBtn" title="Save scene photo">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h3l2-3h6l2 3h3a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><circle cx="12" cy="13" r="3.5"/></svg>
+    ဓာတ်ပုံသိမ်းမည်
+  </button>
+  <button id="photoShareBtn" title="Share a wish link">လင့်ခ်မျှဝေမည်</button>
+  <button id="photoExitBtn" title="Exit photo mode">ပြီးပြီ</button>
 </div>
 
 <!-- ═══ TIME MODAL ═══ -->
@@ -145,7 +166,17 @@
   <div class="modal card-modal">
     <div class="glow-top"></div>
     <button class="close" id="cardClose">✕</button>
-    <div class="lantern-icon" id="cardIcon"></div>
+    <div class="lantern-emblem" aria-hidden="true">
+      <span class="emblem-orbit"></span>
+      <div class="lantern-icon" id="cardIcon" data-shape="classic" data-size="medium">
+        <span class="lantern-ribs"></span>
+        <span class="lantern-ring top"></span>
+        <span class="lantern-ring middle"></span>
+        <span class="lantern-ring base"></span>
+        <span class="lantern-flame"></span>
+      </div>
+    </div>
+    <div class="lantern-style" id="cardLanternStyle">Classic · အလတ်</div>
     <div class="kicker">ဆုတောင်းစာ</div>
     <div class="wish-text" id="cardText"></div>
     <div class="dedicate-line" id="cardDedicate" style="display:none"></div>

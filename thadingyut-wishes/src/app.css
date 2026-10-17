@@ -1,0 +1,55 @@
+#root,
+.legacy-mount {
+  display: contents;
+}
+
+.cloud-status {
+  position: fixed;
+  z-index: 30;
+  left: 12px;
+  bottom: 12px;
+  max-width: calc(100vw - 24px);
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 190, 90, 0.14);
+  border-radius: 999px;
+  background: rgba(16, 14, 34, 0.48);
+  color: rgba(207, 200, 230, 0.65);
+  font: 10px/1.2 'Noto Sans Myanmar', 'Padauk', sans-serif;
+  letter-spacing: 0.15px;
+  pointer-events: none;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.scene-error {
+  position: fixed;
+  z-index: 60;
+  top: 50%;
+  left: 50%;
+  width: min(440px, calc(100vw - 32px));
+  padding: 18px 20px;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 190, 90, 0.28);
+  border-radius: 18px;
+  background: rgba(18, 14, 36, 0.92);
+  color: #ffe2a8;
+  font: 600 14px/1.7 'Noto Sans Myanmar', 'Padauk', sans-serif;
+  text-align: center;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+body.day-mode .cloud-status {
+  background: rgba(255, 255, 255, 0.45);
+  color: rgba(74, 58, 32, 0.7);
+  border-color: rgba(120, 80, 20, 0.12);
+}
+
+@media (max-width: 560px) {
+  .cloud-status {
+    left: 8px;
+    bottom: 8px;
+    font-size: 9px;
+  }
+}
