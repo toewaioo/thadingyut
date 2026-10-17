@@ -263,41 +263,6 @@ const SKY_SUNSET = {
   bottom: new THREE.Color('#f0b060')
 };
 
-/* Soft procedural cloud sprites drift across the daytime sky. */
-const cloudTexture = (() => {
-  const c = document.createElement('canvas');
-  c.width = 512; c.height = 256;
-  const ctx = c.getContext('2d');
-  const puffs = [[54,166,54],[104,126,72],[170,145,88],[236,116,74],[298,144,88],[367,126,70],[430,165,56],[82,177,43],[180,173,50],[335,177,55]];
-  puffs.forEach(([x,y,r]) => {
-    const g = ctx.createRadialGradient(x-r*.12,y-r*.18,0,x,y,r*1.35);
-    g.addColorStop(0,'rgba(255,255,255,.62)');
-    g.addColorStop(.48,'rgba(250,253,255,.42)');
-    g.addColorStop(.78,'rgba(237,246,255,.16)');
-    g.addColorStop(1,'rgba(230,242,255,0)');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x,y,r*1.35,0,Math.PI*2); ctx.fill();
-  });
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-})();
-const cloudMaterial = new THREE.SpriteMaterial({
-  map: cloudTexture, color: 0xffffff, transparent: true, opacity: 0,
-  depthWrite: false, fog: false
-});
-const cloudSprites = [];
-for (let i=0; i<20; i++){
-  const angle = (i/20)*Math.PI*2;
-  const radius = 500 + Math.random()*150;
-  const cloud = new THREE.Sprite(cloudMaterial);
-  cloud.position.set(Math.cos(angle)*radius, 105 + Math.random()*185, -70 + Math.sin(angle)*radius);
-  cloud.scale.set(150 + Math.random()*150, 65 + Math.random()*55, 1);
-  cloud.userData.drift = 0.35 + Math.random()*0.6;
-  cloud.visible = false;
-  scene.add(cloud);
-  cloudSprites.push(cloud);
-}
-
 /* ═══════════════════════════════════════════
    STARS (with opacity uniform)
    ═══════════════════════════════════════════ */
@@ -359,195 +324,6 @@ const starMaterial = (() => {
   scene.add(stars);
   return m;
 })();
-
-/* Slow, luminous meteors with a tapered colored trail, drifting sparks, and camera tracking. */
-const shootingStars = [];
-let nextShootingStarAt = 0;
-let shootingStarsNightActive = false;
-let meteorCameraFocus = null;
-let pendingMeteorFocus = null;
-function makeMeteorTrailGeometry(){
-  const segments = 18;
-  const positions = new Float32Array((segments+1)*2*3);
-  const fades = new Float32Array((segments+1)*2);
-  const along = new Float32Array((segments+1)*2);
-  const indices = [];
-  for (let i=0;i<=segments;i++){
-    const t = i/segments;
-    const x = -58*t;
-    const width = .12 + 2.5*Math.pow(1-t,1.35);
-    const base = i*2;
-    positions.set([x,-width,0,x,width,0],base*3);
-    const fade = Math.pow(1-t,1.25);
-    fades[base]=fade; fades[base+1]=fade;
-    along[base]=t; along[base+1]=t;
-    if (i<segments){
-      const a=base,b=base+1,c=base+2,d=base+3;
-      indices.push(a,b,c,b,d,c);
-    }
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));
-  geometry.setAttribute('aFade',new THREE.BufferAttribute(fades,1));
-  geometry.setAttribute('aAlong',new THREE.BufferAttribute(along,1));
-  geometry.setIndex(indices);
-  geometry.computeBoundingSphere();
-  return geometry;
-}
-function makeShootingStar(){
-  const group = new THREE.Group();
-  const trailGeometry = makeMeteorTrailGeometry();
-  const trailMaterial = new THREE.ShaderMaterial({
-    uniforms:{uOpacity:{value:0}}, transparent:true, depthWrite:false,
-    blending:THREE.AdditiveBlending, side:THREE.DoubleSide, fog:false, toneMapped:false,
-    vertexShader:`
-      attribute float aFade;
-      attribute float aAlong;
-      varying float vFade;
-      varying float vAlong;
-      void main(){
-        vFade=aFade; vAlong=aAlong;
-        gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);
-      }
-    `,
-    fragmentShader:`
-      uniform float uOpacity;
-      varying float vFade;
-      varying float vAlong;
-      void main(){
-        vec3 head=vec3(1.0,.88,.62);
-        vec3 tail=vec3(.25,.45,1.0);
-        float alpha=uOpacity*vFade;
-        if(alpha<.008) discard;
-        gl_FragColor=vec4(mix(head,tail,vAlong),alpha);
-      }
-    `
-  });
-  const trail = new THREE.Mesh(trailGeometry,trailMaterial);
-  trail.renderOrder=1; group.add(trail);
-  const streakGeometry = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(0,0,.03),new THREE.Vector3(-34,12,.03)
-  ]);
-  const streakMaterial = new THREE.LineBasicMaterial({
-    color:0xe4f1ff,transparent:true,opacity:0,
-    blending:THREE.AdditiveBlending,depthWrite:false
-  });
-  const streak = new THREE.Line(streakGeometry,streakMaterial);
-  streak.renderOrder=2; group.add(streak);
-  const auraMaterial = new THREE.SpriteMaterial({
-    map:glowTex,color:0x6999ff,transparent:true,opacity:0,
-    blending:THREE.AdditiveBlending,depthWrite:false,fog:false
-  });
-  const aura = new THREE.Sprite(auraMaterial);
-  aura.scale.set(22,22,1); aura.renderOrder=3; group.add(aura);
-  const glowMaterial = new THREE.SpriteMaterial({
-    map:glowTex,color:0xfff4d1,transparent:true,opacity:0,
-    blending:THREE.AdditiveBlending,depthWrite:false,fog:false
-  });
-  const head = new THREE.Sprite(glowMaterial);
-  head.scale.set(11,11,1); head.renderOrder=4; group.add(head);
-  const sparks=[];
-  for (let i=0;i<5;i++){
-    const material=new THREE.SpriteMaterial({
-      map:glowTex,color:i%2?0xb7d7ff:0xffe7a3,transparent:true,opacity:0,
-      blending:THREE.AdditiveBlending,depthWrite:false,fog:false
-    });
-    const spark=new THREE.Sprite(material);
-    spark.position.set(-10-i*9,(Math.random()-.5)*4,.05);
-    const size=2.2+Math.random()*1.2;
-    spark.scale.set(size,size,1); spark.renderOrder=5; group.add(spark);
-    sparks.push({sprite:spark,phase:Math.random()*Math.PI*2});
-  }
-  group.visible=false;
-  scene.add(group);
-  return {group,trailMaterial,streakMaterial,auraMaterial,glowMaterial,sparks,age:0,duration:1.8,velocity:new THREE.Vector3(),active:false,impactAt:null};
-}
-for (let i=0;i<3;i++) shootingStars.push(makeShootingStar());
-function launchShootingStar(star,t){
-  star.group.position.set((Math.random()-.5)*420,230+Math.random()*270,-390-Math.random()*340);
-  star.velocity.set(52+Math.random()*28,-18-Math.random()*18,0);
-  star.age=0; star.duration=3.2+Math.random()*1.0; star.active=true; star.impactAt=null;
-  star.group.rotation.z=Math.atan2(star.velocity.y,star.velocity.x);
-  star.group.visible=true;
-  beginMeteorCameraFocus(star,t);
-}
-function updateShootingStars(dt,t,nightFactor){
-  if (nightFactor<.38){
-    shootingStarsNightActive=false;
-    shootingStars.forEach(star=>{if(star.active){star.active=false;star.impactAt=t;star.group.visible=false;}});
-    return;
-  }
-  if (!shootingStarsNightActive){
-    shootingStarsNightActive=true;
-    nextShootingStarAt=t+30+Math.random()*30;
-  }
-  if (t>nextShootingStarAt){
-    const idle=shootingStars.find(star=>!star.active);
-    if (idle){launchShootingStar(idle,t);nextShootingStarAt=Infinity;}
-  }
-  shootingStars.forEach(star=>{
-    if (!star.active) return;
-    star.age+=dt;
-    star.group.position.addScaledVector(star.velocity,dt);
-    star.group.rotation.z=Math.atan2(star.velocity.y,star.velocity.x);
-    const fade=Math.min(1,star.age/.32,(star.duration-star.age)/.72)*Math.max(0,nightFactor);
-    star.trailMaterial.uniforms.uOpacity.value=Math.max(0,fade*.9);
-    star.streakMaterial.opacity=Math.max(0,fade*.82);
-    star.auraMaterial.opacity=Math.max(0,fade*.25);
-    star.glowMaterial.opacity=Math.max(0,fade*.72);
-    star.sparks.forEach(({sprite,phase},i)=>{
-      sprite.material.opacity=Math.max(0,fade*(.12+.3*(.5+.5*Math.sin(t*10+i+phase))));
-    });
-    if (star.age>=star.duration){
-      star.active=false;star.impactAt=t;star.group.visible=false;
-      nextShootingStarAt=t+30+Math.random()*30;
-      showMeteorWishHint();
-    }
-  });
-}
-function beginMeteorCameraFocus(star,t){
-  if (cameraFollow){pendingMeteorFocus=star;return;}
-  meteorCameraFocus={
-    star,phase:'track',phaseStart:t,startTarget:controls.target.clone(),
-    startCamPos:camera.position.clone(),impactTarget:star.group.position.clone(),returnTarget:null
-  };
-  controls.enabled=false;controls.autoRotate=false;
-}
-function updateMeteorCameraFocus(t){
-  if (!meteorCameraFocus&&pendingMeteorFocus&&!cameraFollow){
-    const star=pendingMeteorFocus;pendingMeteorFocus=null;
-    beginMeteorCameraFocus(star,t);
-  }
-  if (!meteorCameraFocus)return false;
-  const focus=meteorCameraFocus,star=focus.star;
-  if (focus.phase==='track'){
-    if (star.active){
-      const progress=Math.min(1,(t-focus.phaseStart)/1.05);
-      const eased=1-Math.pow(1-progress,3);
-      const desired=star.group.position;
-      if (progress<1)controls.target.copy(focus.startTarget).lerp(desired,eased);
-      else controls.target.lerp(desired,.12);
-    }else{
-      focus.impactTarget=star.group.position.clone();
-      focus.phase='hold';focus.phaseStart=t;
-    }
-  }else if(focus.phase==='hold'){
-    controls.target.lerp(focus.impactTarget,.18);
-    if(t-focus.phaseStart>1.35){focus.phase='return';focus.phaseStart=t;focus.returnTarget=controls.target.clone();}
-  }else if(focus.phase==='return'){
-    const k=Math.min(1,(t-focus.phaseStart)/1.2);
-    const eased=1-Math.pow(1-k,3);
-    controls.target.copy(focus.returnTarget).lerp(focus.startTarget,eased);
-    camera.position.copy(focus.startCamPos);
-    if(k>=1){
-      controls.target.copy(focus.startTarget);controls.enabled=true;meteorCameraFocus=null;
-      return false;
-    }
-  }
-  camera.position.copy(focus.startCamPos);
-  camera.lookAt(controls.target);
-  return true;
-}
 
 /* ═══════════════════════════════════════════
    MOON (with refs)
@@ -1070,23 +846,13 @@ function scheduleAmbientBell(){
    PREFS + STORAGE
    ═══════════════════════════════════════════ */
 const prefs = {
-  color: 0xff9028, shape: 'classic', size: 1.15, font: '', dedicate: '', season: 'thadingyut', offerings: []
+  color: 0xff9028, shape: 'classic', size: 1.15, font: '', dedicate: '', season: 'thadingyut'
 };
 try {
   const saved = localStorage.getItem('thadingyut_prefs_v2');
   if (saved) Object.assign(prefs, JSON.parse(saved));
 } catch(e){}
-const MAX_OFFERINGS = 160;
-prefs.offerings = Array.isArray(prefs.offerings)
-  ? prefs.offerings.filter(item => item && item.position && Number.isFinite(item.position.x) && Number.isFinite(item.position.y) && Number.isFinite(item.position.z)).slice(-MAX_OFFERINGS)
-  : [];
-function savePrefs(){
-  try {
-    if (prefs.offerings.length > MAX_OFFERINGS) prefs.offerings = prefs.offerings.slice(-MAX_OFFERINGS);
-    localStorage.setItem('thadingyut_prefs_v2', JSON.stringify(prefs));
-    announceCloudChange();
-  } catch(e){}
-}
+function savePrefs(){ try { localStorage.setItem('thadingyut_prefs_v2', JSON.stringify(prefs)); announceCloudChange(); } catch(e){} }
 
 let userWishes = [];
 try {
@@ -1116,91 +882,6 @@ function updateStreak(){
 function getStreak(){
   try { const s = localStorage.getItem('thadingyut_streak_v2'); if (s) return JSON.parse(s); } catch(e){}
   return { last:'', count:0, total:0 };
-}
-
-/* Oil lamps placed by visitors are persisted with the existing cloud-synced preferences. */
-const OFFERING_RINGS = [
-  { radius: 55.2, y: 3.62 }, { radius: 51.2, y: 7.12 }, { radius: 47.2, y: 10.62 },
-  { radius: 43.4, y: 13.82 }, { radius: 39.4, y: 16.82 }, { radius: 36.4, y: 19.85 }
-];
-const offeringLamps = [];
-function getOfferingPosition(index){
-  const ringIndex = index % OFFERING_RINGS.length;
-  const ring = OFFERING_RINGS[ringIndex];
-  const turn = Math.floor(index / OFFERING_RINGS.length);
-  const angle = turn * 2.399963229728653 + ringIndex * .51;
-  return { x: Math.cos(angle)*ring.radius, y: ring.y, z: -70 + Math.sin(angle)*ring.radius };
-}
-function createOfferingLamp(record, index, { unlit=false }={}){
-  const position = record.position || getOfferingPosition(index);
-  const group = new THREE.Group();
-  const bowlMat = new THREE.MeshStandardMaterial({ color: 0xc57a39, roughness: .38, metalness: .68, emissive: 0x5b2100, emissiveIntensity: .38 });
-  const rimMat = new THREE.MeshStandardMaterial({ color: 0xffd18a, roughness: .32, metalness: .72, emissive: 0x7b3800, emissiveIntensity: .28 });
-  const bowl = new THREE.Mesh(new THREE.CylinderGeometry(.57,.42,.24,16), bowlMat);
-  bowl.position.y = .12; group.add(bowl);
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(.52,.055,7,18), rimMat);
-  rim.rotation.x = Math.PI/2; rim.position.y = .235; group.add(rim);
-  const wick = new THREE.Mesh(new THREE.CylinderGeometry(.035,.045,.18,6), new THREE.MeshBasicMaterial({ color: 0x38210d }));
-  wick.position.y = .32; group.add(wick);
-  const flame = new THREE.Mesh(new THREE.SphereGeometry(.15,12,12), new THREE.MeshBasicMaterial({ color: 0xffedb8, fog:false }));
-  flame.position.y = .53; flame.scale.set(unlit?0:.8,unlit?0:1.8,unlit?0:.8); flame.visible = !unlit; group.add(flame);
-  const glowMaterial = new THREE.SpriteMaterial({ map: candleGlowTex, color: 0xffb74d, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, opacity:unlit?0:.8, fog:false });
-  const glow = new THREE.Sprite(glowMaterial);
-  glow.position.y = .55; glow.scale.set(unlit?0:2.4,unlit?0:2.4,1); glow.visible = !unlit; group.add(glow);
-  group.position.set(position.x, position.y, position.z);
-  group.rotation.y = Math.atan2(position.x, position.z + 70);
-  scene.add(group);
-  const lamp = { group, flame, glow, phase: Math.random()*Math.PI*2, igniting:unlit, ignitionStart:null };
-  offeringLamps.push(lamp);
-  return lamp;
-}
-function disposeOfferingLamp(lamp){
-  if (!lamp) return;
-  scene.remove(lamp.group);
-  lamp.group.traverse(object => {
-    if (object.geometry) object.geometry.dispose();
-    if (object.material){
-      if (object.material.map && object.material.map !== candleGlowTex) object.material.map.dispose();
-      object.material.dispose();
-    }
-  });
-}
-function updateOfferingLamps(t){
-  offeringLamps.forEach(lamp => {
-    if (lamp.igniting && lamp.ignitionStart === null){ lamp.flame.visible=false; lamp.glow.visible=false; return; }
-    const ignition = lamp.igniting ? THREE.MathUtils.clamp((t-lamp.ignitionStart)/.72,0,1) : 1;
-    lamp.flame.visible = ignition > 0;
-    lamp.glow.visible = ignition > 0;
-    const flicker = 1 + Math.sin(t*9 + lamp.phase)*.11 + Math.sin(t*17 + lamp.phase*1.7)*.06;
-    lamp.flame.scale.set(.8*flicker*ignition,1.8*flicker*ignition,.8*flicker*ignition);
-    lamp.glow.scale.set(2.4*ignition,2.4*ignition,1);
-    lamp.glow.material.opacity = (.68 + Math.sin(t*6 + lamp.phase)*.12)*ignition;
-    if (lamp.igniting && ignition >= 1) lamp.igniting = false;
-  });
-}
-prefs.offerings.forEach((record, index) => createOfferingLamp(record, index));
-function offerOilLamp(){
-  if (cameraFollow) return;
-  const index = prefs.offerings.length;
-  const position = getOfferingPosition(index);
-  const record = { id: 'o_' + Date.now() + '_' + Math.random().toString(36).slice(2,7), position, at: Date.now() };
-  prefs.offerings.push(record);
-  const lamp = createOfferingLamp(record, index, { unlit:true });
-  if (prefs.offerings.length > MAX_OFFERINGS){
-    prefs.offerings.shift();
-    disposeOfferingLamp(offeringLamps.shift());
-  }
-  savePrefs();
-  if (soundEnabled){ initAudio(); playBell(420,1.8,.075); }
-  showToast('ဆီမီးလှူဒါန်းလိုက်ပါပြီ — စေတီတော်ဆီ လိုက်ကြည့်နေသည် 🪔');
-  startCameraFollow(lamp, {
-    focusOffsetY:1.05, followDistance:8, approachDur:1.45, followDur:3.0, returnDur:1.8,
-    badgeText:'ဆီမီးကို မီးညှိနေသည်',
-    onArrive:(t) => {
-      lamp.ignitionStart = t;
-      showToast('ဆီမီးတစ်တိုင် မီးတောက်လင်းလာပါပြီ 🪔');
-    }
-  });
 }
 
 /* ═══════════════════════════════════════════
@@ -1430,92 +1111,6 @@ const raycaster = new THREE.Raycaster();
 const pointer   = new THREE.Vector2();
 const countEl = document.getElementById('count');
 
-let lanternPhysicsWorker = null;
-let lanternPhysicsWorkerReady = false;
-let lanternPhysicsWorkerEnabled = false;
-let lanternPhysicsWorkerBusy = false;
-let lanternPhysicsFrameId = 0;
-let lanternPhysicsPendingDt = 0;
-let nextLanternPhysicsId = 1;
-const lanternsByPhysicsId = new Map();
-function getLanternPhysicsState(lantern){
-  return {
-    id:lantern.physicsId, age:lantern.age,
-    x:lantern.group.position.x, y:lantern.group.position.y, z:lantern.group.position.z,
-    baseX:lantern.baseX, baseZ:lantern.baseZ, maxSpeed:lantern.maxSpeed,
-    swayAmp:lantern.swayAmp, swayFreq:lantern.swayFreq, phase:lantern.phase,
-    baseScale:lantern.baseScale, rotationX:lantern.group.rotation.x, rotationZ:lantern.group.rotation.z
-  };
-}
-function stopLanternPhysicsWorker(error){
-  if (error) console.warn('Lantern physics worker unavailable; using main-thread physics.',error.message||error);
-  if (lanternPhysicsWorker) lanternPhysicsWorker.terminate();
-  lanternPhysicsWorker=null; lanternPhysicsWorkerReady=false; lanternPhysicsWorkerEnabled=false;
-  lanternPhysicsWorkerBusy=false; lanternPhysicsPendingDt=0; lanternsByPhysicsId.clear();
-}
-function initLanternPhysicsWorker(){
-  if (!('Worker' in window)) return;
-  try{
-    lanternPhysicsWorker=new Worker(new URL('./lantern-physics.worker.js',import.meta.url),{type:'module'});
-    lanternPhysicsWorker.onmessage=(event)=>{
-      const message=event.data;
-      if (!message)return;
-      if (message.type==='ready'){
-        lanternPhysicsWorkerReady=true;
-        lanterns.forEach(lantern=>{
-          if (lantern.physicsId!==undefined) lanternPhysicsWorker.postMessage({type:'add',state:getLanternPhysicsState(lantern)});
-        });
-        lanternPhysicsWorkerEnabled=true;
-        return;
-      }
-      if (message.type!=='frame')return;
-      lanternPhysicsWorkerBusy=false;
-      const states=new Float32Array(message.buffer);
-      for(let i=0;i+10<states.length;i+=11){
-        const lantern=lanternsByPhysicsId.get(states[i]|0);
-        if(!lantern)continue;
-        lantern.age=states[i+1];
-        lantern.group.position.set(states[i+2],states[i+3],states[i+4]);
-        lantern.group.rotation.x=states[i+5];
-        lantern.group.rotation.z=states[i+6];
-        lantern.group.scale.setScalar(states[i+7]);
-        lantern.baseX=states[i+8]; lantern.baseZ=states[i+9]; lantern.phase=states[i+10];
-      }
-    };
-    lanternPhysicsWorker.onerror=(event)=>stopLanternPhysicsWorker(event.message||event);
-  }catch(error){stopLanternPhysicsWorker(error);}
-}
-function registerLanternPhysics(lantern){
-  if(!lanternPhysicsWorker)return;
-  lantern.physicsId=nextLanternPhysicsId++;
-  lanternsByPhysicsId.set(lantern.physicsId,lantern);
-  try{lanternPhysicsWorker.postMessage({type:'add',state:getLanternPhysicsState(lantern)});}
-  catch(error){stopLanternPhysicsWorker(error);}
-}
-function unregisterLanternPhysics(lantern){
-  if(lantern.physicsId===undefined)return;
-  lanternsByPhysicsId.delete(lantern.physicsId);
-  if(lanternPhysicsWorker){
-    try{lanternPhysicsWorker.postMessage({type:'remove',id:lantern.physicsId});}catch(error){stopLanternPhysicsWorker(error);}
-  }
-}
-function tickLanternPhysicsWorker(dt,t){
-  if(!lanternPhysicsWorkerEnabled||!lanternPhysicsWorkerReady||!lanternPhysicsWorker)return;
-  lanternPhysicsPendingDt=Math.min(.12,lanternPhysicsPendingDt+dt);
-  if(lanternPhysicsWorkerBusy)return;
-  const stepDt=lanternPhysicsPendingDt;
-  lanternPhysicsPendingDt=0;
-  lanternPhysicsWorkerBusy=true;
-  try{
-    lanternPhysicsWorker.postMessage({
-      type:'tick',frameId:++lanternPhysicsFrameId,dt:stepDt,t,
-      wind:{strength:wind.strength,dirX:wind.dirX,dirZ:wind.dirZ},
-      suspendRecycle:!!cameraFollow
-    });
-  }catch(error){stopLanternPhysicsWorker(error);}
-}
-initLanternPhysicsWorker();
-
 function randomSkyPosition(){
   let x = 0, z = 0;
   for (let i=0;i<16;i++){
@@ -1530,21 +1125,6 @@ function getUserLaunchPosition(){
   const angle = Math.random() * Math.PI * 2;
   const r = 8 + Math.random() * 12;
   return { x: Math.cos(angle) * r, z: 26 + Math.sin(angle) * r * 0.5 };
-}
-function getRestoredWishPosition(wish, index){
-  const saved = wish.position;
-  if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.z)){
-    return {
-      x: THREE.MathUtils.clamp(saved.x, -30, 30),
-      z: THREE.MathUtils.clamp(saved.z, 12, 42)
-    };
-  }
-  const angle = index * Math.PI * (3 - Math.sqrt(5));
-  const radius = 8 + (index % 4) * 3;
-  return {
-    x: Math.cos(angle) * radius,
-    z: 27 + Math.sin(angle) * radius * 0.45
-  };
 }
 function spawnLantern(wish, opts = {}){
   const group = new THREE.Group();
@@ -1594,13 +1174,11 @@ function spawnLantern(wish, opts = {}){
   group.userData.lantern = lantern;
   scene.add(group);
   lanterns.push(lantern);
-  registerLanternPhysics(lantern);
   while (lanterns.length > MAX_LANTERNS){ const old = lanterns.shift(); disposeLantern(old); }
   updateCounter();
   return lantern;
 }
 function disposeLantern(l){
-  unregisterLanternPhysics(l);
   scene.remove(l.group);
   if (l.smokeTrail){ scene.remove(l.smokeTrail.points); l.smokeTrail.geo.dispose(); l.smokeTrail.points.material.dispose(); }
   l.group.traverse(o => {
@@ -1613,316 +1191,6 @@ function disposeLantern(l){
   });
 }
 function updateCounter(){ countEl.textContent = lanterns.length; }
-
-/* One rising shell per letter; each burst forms a glyph, then the full phrase rains down. */
-const FIREWORK_PARTICLES_PER_LETTER=52;
-const FIREWORK_BURST_SPARKS_PER_LETTER=40;
-const FIREWORK_LAUNCH_INTERVAL=.42;
-const MAX_ACTIVE_FIREWORKS=2;
-const activeFireworks=[];
-const fireworkSparkTex=(()=>{
-  const canvas=document.createElement('canvas');canvas.width=96;canvas.height=96;
-  const ctx=canvas.getContext('2d');
-  const gradient=ctx.createRadialGradient(48,48,0,48,48,48);
-  gradient.addColorStop(0,'rgba(255,255,255,1)');
-  gradient.addColorStop(.22,'rgba(255,255,255,.92)');
-  gradient.addColorStop(.58,'rgba(255,255,255,.24)');
-  gradient.addColorStop(1,'rgba(255,255,255,0)');
-  ctx.fillStyle=gradient;ctx.fillRect(0,0,96,96);
-  const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
-  return texture;
-})();
-function makeFireworkLetterLayouts(particlesPerLetter,worldWidth){
-  const canvas=document.createElement('canvas');canvas.width=1800;canvas.height=600;
-  const ctx=canvas.getContext('2d');
-  const words=[{text:'HAPPY',y:180},{text:'THADINGYUT',y:420}];
-  const trackingFor=size=>size*.04;
-  let fontSize=240;
-  ctx.textBaseline='middle';ctx.textAlign='left';
-  const lineWidth=(word,size)=>{
-    ctx.font=`900 ${size}px Arial, sans-serif`;
-    const chars=Array.from(word);
-    return chars.reduce((sum,char)=>sum+ctx.measureText(char).width,0)+trackingFor(size)*Math.max(0,chars.length-1);
-  };
-  while(Math.max(...words.map(row=>lineWidth(row.text,fontSize)))>canvas.width-160&&fontSize>100)fontSize-=4;
-  ctx.font=`900 ${fontSize}px Arial, sans-serif`;
-  ctx.fillStyle='#fff';ctx.lineJoin='round';ctx.lineWidth=7;ctx.strokeStyle='#fff';
-  const glyphs=[];
-  for(const row of words){
-    const chars=Array.from(row.text),tracking=trackingFor(fontSize);
-    const total=chars.reduce((sum,char)=>sum+ctx.measureText(char).width,0)+tracking*Math.max(0,chars.length-1);
-    let x=(canvas.width-total)/2;
-    for(const char of chars){
-      const width=ctx.measureText(char).width;
-      const glyph={char,left:x-5,right:x+width+5,centerX:x+width/2,centerY:row.y};
-      ctx.fillText(char,x,row.y);ctx.strokeText(char,x,row.y);
-      glyphs.push(glyph);x+=width+tracking;
-    }
-  }
-  const pixels=ctx.getImageData(0,0,canvas.width,canvas.height).data;
-  const worldHeight=worldWidth*canvas.height/canvas.width;
-  const colors=[0xffd36e,0x86e5ff,0xff83b5,0xbca0ff,0xffa94f,0xffedbd];
-  return glyphs.map((glyph,index)=>{
-    const candidates=[];
-    const y0=Math.max(12,glyph.centerY-fontSize*.62),y1=Math.min(canvas.height-12,glyph.centerY+fontSize*.62);
-    for(let y=y0;y<y1;y+=4){
-      for(let x=Math.max(8,glyph.left);x<Math.min(canvas.width-8,glyph.right);x+=4){
-        if(pixels[(Math.floor(y)*canvas.width+Math.floor(x))*4+3]>100)candidates.push([x,y]);
-      }
-    }
-    if(!candidates.length)candidates.push([glyph.centerX,glyph.centerY]);
-    const targets=new Float32Array(particlesPerLetter*3);
-    for(let i=0;i<particlesPerLetter;i++){
-      const [x,y]=candidates[Math.floor(Math.random()*candidates.length)];
-      targets[i*3]=(x/canvas.width-.5)*worldWidth;
-      targets[i*3+1]=(.5-y/canvas.height)*worldHeight;
-    }
-    return {
-      char:glyph.char,centerX:(glyph.centerX/canvas.width-.5)*worldWidth,
-      centerY:(.5-glyph.centerY/canvas.height)*worldHeight,
-      targets,color:colors[index%colors.length],phase:'waiting',elapsed:0,mesh:null,flash:null
-    };
-  });
-}
-function disposeFirework(firework){
-  if(!firework)return;
-  scene.remove(firework.group);
-  firework.group.traverse(object=>{
-    if(object.geometry)object.geometry.dispose();
-    if(object.material){
-      if(object.material.map&&object.material.map!==glowTex&&object.material.map!==fireworkSparkTex)object.material.map.dispose();
-      object.material.dispose();
-    }
-  });
-}
-function createFireworkSequence(){
-  while(activeFireworks.length>=MAX_ACTIVE_FIREWORKS)disposeFirework(activeFireworks.shift());
-  const group=new THREE.Group();
-  const worldWidth=THREE.MathUtils.clamp(camera.aspect*55,52,98);
-  group.position.set((Math.random()-.5)*5,131+Math.random()*3,-70);
-  const letters=makeFireworkLetterLayouts(FIREWORK_PARTICLES_PER_LETTER,worldWidth);
-  for(const letter of letters){
-    const positions=new Float32Array(FIREWORK_PARTICLES_PER_LETTER*3);
-    const colors=new Float32Array(FIREWORK_PARTICLES_PER_LETTER*3);
-    const paletteColor=new THREE.Color(letter.color),white=new THREE.Color(0xfff6dc);
-    for(let i=0;i<FIREWORK_PARTICLES_PER_LETTER;i++){
-      const color=paletteColor.clone().lerp(white,Math.random()*.42);
-      colors.set([color.r,color.g,color.b],i*3);
-    }
-    const geometry=new THREE.BufferGeometry();
-    geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));
-    geometry.setAttribute('color',new THREE.BufferAttribute(colors,3));
-    const material=new THREE.PointsMaterial({
-      map:fireworkSparkTex,size:2.2,sizeAttenuation:true,vertexColors:true,transparent:true,opacity:0,
-      blending:THREE.AdditiveBlending,depthWrite:false,alphaTest:.025
-    });
-    const mesh=new THREE.Points(geometry,material);mesh.visible=false;mesh.frustumCulled=false;group.add(mesh);
-    const flashMaterial=new THREE.SpriteMaterial({
-      map:glowTex,color:letter.color,transparent:true,opacity:0,
-      blending:THREE.AdditiveBlending,depthWrite:false,fog:false
-    });
-    const flash=new THREE.Sprite(flashMaterial);
-    flash.position.set(letter.centerX,letter.centerY,.08);flash.scale.set(4,4,1);flash.visible=false;group.add(flash);
-    const burstPositions=new Float32Array(FIREWORK_BURST_SPARKS_PER_LETTER*3);
-    const burstColors=new Float32Array(FIREWORK_BURST_SPARKS_PER_LETTER*3);
-    const burstBase=new THREE.Color(letter.color),burstWhite=new THREE.Color(0xfff8e6);
-    for(let i=0;i<FIREWORK_BURST_SPARKS_PER_LETTER;i++){
-      const c=burstBase.clone().lerp(burstWhite,Math.random()*.5);burstColors.set([c.r,c.g,c.b],i*3);
-    }
-    const burstGeometry=new THREE.BufferGeometry();
-    burstGeometry.setAttribute('position',new THREE.BufferAttribute(burstPositions,3));
-    burstGeometry.setAttribute('color',new THREE.BufferAttribute(burstColors,3));
-    const burstMaterial=new THREE.PointsMaterial({map:fireworkSparkTex,size:2.0,sizeAttenuation:true,vertexColors:true,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,alphaTest:.02});
-    const burstMesh=new THREE.Points(burstGeometry,burstMaterial);burstMesh.visible=false;burstMesh.frustumCulled=false;group.add(burstMesh);
-    letter.mesh=mesh;letter.flash=flash;letter.positions=positions;letter.burstMesh=burstMesh;
-    letter.burstPositions=burstPositions;letter.burstVelocities=new Float32Array(FIREWORK_BURST_SPARKS_PER_LETTER*3);
-    letter.velocities=new Float32Array(FIREWORK_PARTICLES_PER_LETTER*3);
-    letter.assemblyStarts=new Float32Array(FIREWORK_PARTICLES_PER_LETTER*3);
-    letter.fallingVelocities=new Float32Array(FIREWORK_PARTICLES_PER_LETTER*3);
-    letter.assemblyDelays=new Float32Array(FIREWORK_PARTICLES_PER_LETTER);
-  }
-  scene.add(group);
-  const sequence={group,letters,age:0,nextLetter:0,rockets:[],dropAt:null};
-  activeFireworks.push(sequence);
-  return sequence;
-}
-function makeFireworkRocket(sequence,letter,index){
-  const shell=new THREE.Group();
-  const start=new THREE.Vector3(letter.centerX,17-sequence.group.position.y,0);
-  const target=new THREE.Vector3(letter.centerX,letter.centerY,0);
-  shell.position.copy(start);
-  const headMaterial=new THREE.SpriteMaterial({
-    map:glowTex,color:letter.color,transparent:true,opacity:1,
-    blending:THREE.AdditiveBlending,depthTest:false,depthWrite:false,fog:false
-  });
-  const head=new THREE.Sprite(headMaterial);head.scale.set(4.8,4.8,1);shell.add(head);
-  const trailCount=12;
-  const trailPositions=new Float32Array(trailCount*3);
-  const trailGeometry=new THREE.BufferGeometry();
-  trailGeometry.setAttribute('position',new THREE.BufferAttribute(trailPositions,3));
-  const trailMaterial=new THREE.LineBasicMaterial({
-    color:letter.color,transparent:true,opacity:.92,
-    blending:THREE.AdditiveBlending,depthTest:false,depthWrite:false
-  });
-  const trail=new THREE.Line(trailGeometry,trailMaterial);trail.frustumCulled=false;shell.add(trail);
-  sequence.group.add(shell);
-  return {
-    group:shell,head,trail,trailGeometry,trailMaterial,trailPositions,
-    history:[start.clone()],start,target,letter,index,age:0,duration:1.85+Math.random()*.2
-  };
-}
-function disposeFireworkRocket(rocket,sequence){
-  sequence.group.remove(rocket.group);
-  rocket.trailGeometry.dispose();rocket.trailMaterial.dispose();rocket.head.material.dispose();
-}
-function launchFireworkLetter(sequence,index){
-  const letter=sequence.letters[index];
-  const rocket=makeFireworkRocket(sequence,letter,index);
-  letter.phase='rocket';letter.rocket=rocket;
-  sequence.rockets.push(rocket);
-}
-function burstLetter(letter){
-  letter.phase='burst';letter.elapsed=0;letter.mesh.visible=true;letter.mesh.material.opacity=.95;
-  letter.flash.visible=true;letter.flash.material.opacity=.95;letter.flash.scale.set(3,3,1);
-  letter.burstMesh.visible=true;letter.burstMesh.material.opacity=1;
-  for(let i=0;i<FIREWORK_BURST_SPARKS_PER_LETTER;i++){
-    const n=i*3,azimuth=Math.random()*Math.PI*2,vertical=Math.random()*2-1;
-    const horizontal=Math.sqrt(1-vertical*vertical),speed=30+Math.random()*26;
-    letter.burstPositions[n]=letter.centerX;letter.burstPositions[n+1]=letter.centerY;letter.burstPositions[n+2]=0;
-    letter.burstVelocities[n]=Math.cos(azimuth)*horizontal*speed;
-    letter.burstVelocities[n+1]=vertical*speed;letter.burstVelocities[n+2]=Math.sin(azimuth)*horizontal*speed;
-  }
-  letter.burstMesh.geometry.attributes.position.needsUpdate=true;
-  for(let i=0;i<FIREWORK_PARTICLES_PER_LETTER;i++){
-    const n=i*3,azimuth=Math.random()*Math.PI*2,vertical=Math.random()*2-1;
-    const horizontal=Math.sqrt(1-vertical*vertical),speed=15+Math.random()*17;
-    letter.positions[n]=letter.centerX;letter.positions[n+1]=letter.centerY;letter.positions[n+2]=0;
-    letter.velocities[n]=Math.cos(azimuth)*horizontal*speed;
-    letter.velocities[n+1]=vertical*speed;
-    letter.velocities[n+2]=Math.sin(azimuth)*horizontal*speed;
-    letter.assemblyDelays[i]=Math.random()*.16;
-  }
-  letter.mesh.geometry.attributes.position.needsUpdate=true;
-}
-function updateFireworkRocket(rocket,sequence,dt){
-  rocket.age+=dt;
-  const progress=Math.min(1,rocket.age/rocket.duration);
-  const eased=1-Math.pow(1-progress,2);
-  const current=rocket.start.clone().lerp(rocket.target,eased);
-  rocket.group.position.copy(current);
-  rocket.history.push(current.clone());if(rocket.history.length>12)rocket.history.shift();
-  const attr=rocket.trailGeometry.attributes.position;
-  for(let i=0;i<12;i++){
-    const p=rocket.history[Math.max(0,rocket.history.length-12+i)];
-    attr.setXYZ(i,p.x-current.x,p.y-current.y,p.z-current.z);
-  }
-  attr.needsUpdate=true;
-  rocket.trailMaterial.opacity=.92*(1-progress*.32);
-  rocket.head.material.opacity=1-progress*.28;
-  if(progress>=1){burstLetter(rocket.letter);disposeFireworkRocket(rocket,sequence);return true;}
-  return false;
-}
-function updateFireworkLetter(letter,sequence,dt){
-  if(letter.phase==='waiting'||letter.phase==='rocket')return;
-  letter.elapsed+=dt;
-  const positions=letter.positions;
-  if(letter.phase==='burst'){
-    if(letter.elapsed<.32){
-      for(let i=0;i<FIREWORK_PARTICLES_PER_LETTER;i++){
-        const n=i*3;
-        letter.velocities[n+1]-=2.4*dt;
-        const drag=Math.exp(-.3*dt);
-        letter.velocities[n]*=drag;letter.velocities[n+1]*=drag;letter.velocities[n+2]*=drag;
-        positions[n]+=letter.velocities[n]*dt;
-        positions[n+1]+=letter.velocities[n+1]*dt;
-        positions[n+2]+=letter.velocities[n+2]*dt;
-      }
-    }else{
-      letter.phase='forming';letter.assemblyStarts.set(positions);
-    }
-    letter.flash.material.opacity=Math.max(0,.9-letter.elapsed*2.8);
-    letter.flash.scale.setScalar(3+letter.elapsed*11);
-    if(letter.elapsed>.34)letter.flash.visible=false;
-  }
-  if(letter.phase==='forming'){
-    const formingTime=letter.elapsed-.32;
-    for(let i=0;i<FIREWORK_PARTICLES_PER_LETTER;i++){
-      const n=i*3;
-      const raw=THREE.MathUtils.clamp((formingTime-letter.assemblyDelays[i])/.52,0,1);
-      const ease=raw*raw*(3-2*raw);
-      positions[n]=letter.assemblyStarts[n]+(letter.targets[n]-letter.assemblyStarts[n])*ease;
-      positions[n+1]=letter.assemblyStarts[n+1]+(letter.targets[n+1]-letter.assemblyStarts[n+1])*ease;
-      positions[n+2]=letter.assemblyStarts[n+2]+(letter.targets[n+2]-letter.assemblyStarts[n+2])*ease;
-    }
-    if(formingTime>=.7){letter.phase='formed';positions.set(letter.targets);}
-  }else if(letter.phase==='formed'){
-    const shimmer=sequence.age*8;
-    for(let i=0;i<FIREWORK_PARTICLES_PER_LETTER;i++){
-      const n=i*3;
-      positions[n]=letter.targets[n]+Math.sin(shimmer+i*1.7)*.05;
-      positions[n+1]=letter.targets[n+1]+Math.sin(shimmer*.8+i*.73)*.06;
-      positions[n+2]=letter.targets[n+2];
-    }
-  }else if(letter.phase==='falling'){
-    for(let i=0;i<FIREWORK_PARTICLES_PER_LETTER;i++){
-      const n=i*3;
-      letter.fallingVelocities[n+1]-=14*dt;
-      positions[n]+=letter.fallingVelocities[n]*dt;
-      positions[n+1]+=letter.fallingVelocities[n+1]*dt;
-      positions[n+2]+=letter.fallingVelocities[n+2]*dt;
-    }
-  }
-  if(letter.burstMesh.visible){
-    for(let i=0;i<FIREWORK_BURST_SPARKS_PER_LETTER;i++){
-      const n=i*3;letter.burstVelocities[n+1]-=15*dt;
-      const drag=Math.exp(-.3*dt);
-      letter.burstVelocities[n]*=drag;letter.burstVelocities[n+1]*=drag;letter.burstVelocities[n+2]*=drag;
-      letter.burstPositions[n]+=letter.burstVelocities[n]*dt;
-      letter.burstPositions[n+1]+=letter.burstVelocities[n+1]*dt;
-      letter.burstPositions[n+2]+=letter.burstVelocities[n+2]*dt;
-    }
-    letter.burstMesh.material.opacity=Math.max(0,1-letter.elapsed/.84);
-    letter.burstMesh.geometry.attributes.position.needsUpdate=true;
-    if(letter.elapsed>.84)letter.burstMesh.visible=false;
-  }
-  letter.mesh.geometry.attributes.position.needsUpdate=true;
-}
-function scheduleLanternFireworks(){
-  createFireworkSequence();
-}
-function updateFireworks(dt){
-  for(let f=activeFireworks.length-1;f>=0;f--){
-    const sequence=activeFireworks[f];sequence.age+=dt;
-    while(sequence.nextLetter<sequence.letters.length&&sequence.age>=sequence.nextLetter*FIREWORK_LAUNCH_INTERVAL){
-      launchFireworkLetter(sequence,sequence.nextLetter++);
-    }
-    for(let r=sequence.rockets.length-1;r>=0;r--){
-      if(updateFireworkRocket(sequence.rockets[r],sequence,dt))sequence.rockets.splice(r,1);
-    }
-    for(const letter of sequence.letters)updateFireworkLetter(letter,sequence,dt);
-    if(sequence.dropAt===null&&sequence.letters.every(letter=>letter.phase==='formed'))sequence.dropAt=sequence.age+2.2;
-    if(sequence.dropAt!==null&&sequence.age>=sequence.dropAt){
-      for(const letter of sequence.letters){
-        if(letter.phase==='formed'){
-          letter.phase='falling';letter.assemblyStarts.set(letter.positions);
-          for(let i=0;i<FIREWORK_PARTICLES_PER_LETTER;i++){
-            const n=i*3;
-            letter.fallingVelocities[n]=(Math.random()-.5)*4.2;
-            letter.fallingVelocities[n+1]=-1-Math.random()*3.8;
-            letter.fallingVelocities[n+2]=(Math.random()-.5)*3.2;
-          }
-        }
-        if(letter.phase==='falling'){
-          const fade=Math.max(0,1-(sequence.age-sequence.dropAt)/2.6);
-          letter.mesh.material.opacity=.95*fade;
-        }
-      }
-    }
-    if(sequence.dropAt!==null&&sequence.age>=sequence.dropAt+2.6){
-      disposeFirework(sequence);activeFireworks.splice(f,1);
-    }
-  }
-}
 
 for (let i=0;i<32;i++){
   const wish = AMBIENT_WISHES[Math.floor(Math.random()*AMBIENT_WISHES.length)];
@@ -1938,17 +1206,16 @@ const savedWishes = Array.isArray(userWishes)
   ? userWishes.filter(wish => wish && typeof wish.text === 'string' && wish.text.trim())
   : [];
 const wishesToRestore = restoreSlots ? savedWishes.slice(-restoreSlots) : [];
-for (let index=0; index<wishesToRestore.length; index++){
-  const wish = wishesToRestore[index];
-  const pos = getRestoredWishPosition(wish, index);
+for (const wish of wishesToRestore){
+  const pos = getUserLaunchPosition();
   const lantern = spawnLantern(wish.text, {
     isUser: true,
     hue: wish.hue,
     shape: wish.shape,
     dedication: wish.dedication,
     position: pos,
-    startY: 42 + (index % 4) * 7,
-    age: 4 + (index % 3) * 2,
+    startY: 8 + Math.random()*150,
+    age: 6 + Math.random()*24,
     maxSpeed: 6.8,
     baseScale: prefs.size
   });
@@ -1959,12 +1226,7 @@ for (let index=0; index<wishesToRestore.length; index++){
    CAMERA FOLLOW
    ═══════════════════════════════════════════ */
 let cameraFollow = null;
-function startCameraFollow(lantern, options={}){
-  if (meteorCameraFocus){
-    if (meteorCameraFocus.star && meteorCameraFocus.star.active) pendingMeteorFocus=meteorCameraFocus.star;
-    meteorCameraFocus=null;
-    controls.enabled=true;
-  }
+function startCameraFollow(lantern){
   const pagodaPos = new THREE.Vector3(0, 0, -70);
   const away = new THREE.Vector3().subVectors(lantern.group.position, pagodaPos);
   away.y = 0;
@@ -1973,34 +1235,23 @@ function startCameraFollow(lantern, options={}){
   const offsetDir = new THREE.Vector3(away.x*0.85 + 0.15, -0.12, away.z*0.85 + 0.15).normalize();
   cameraFollow = {
     lantern, phase: 'approach', phaseStart: clock.elapsedTime,
-    approachDur: options.approachDur ?? 1.9, followDur: options.followDur ?? 5.0, returnDur: options.returnDur ?? 2.2,
+    approachDur: 1.9, followDur: 5.0, returnDur: 2.2,
     startCamPos: camera.position.clone(), startTarget: controls.target.clone(),
-    offsetDir, followDistance: options.followDistance ?? (14 + Math.random()*2),
-    targetOffset: new THREE.Vector3(0, options.focusOffsetY ?? .5, 0),
-    badgeText: options.badgeText || 'မီးပုံးကို လိုက်ကြည့်နေသည်',
-    onArrive: options.onArrive || null, onComplete: options.onComplete || null
+    offsetDir, followDistance: 14 + Math.random()*2
   };
   controls.enabled = true; controls.enableDamping = true; controls.autoRotate = false;
   controls.minDistance = 4; controls.maxDistance = 60;
-  const badge = document.getElementById('followBadge');
-  badge.textContent = cameraFollow.badgeText;
-  badge.classList.add('show');
+  document.getElementById('followBadge').classList.add('show');
   document.getElementById('launchFab').classList.add('following');
-  document.getElementById('offerLampFab').classList.add('following');
   launchBtn.disabled = true;
 }
 function finishCameraFollow(){
-  const completedFollow=cameraFollow;
   cameraFollow = null;
   controls.enabled = true; controls.enableDamping = true; controls.autoRotate = false;
   controls.minDistance = 48; controls.maxDistance = 330;
-  const badge = document.getElementById('followBadge');
-  badge.textContent = 'မီးပုံးကို လိုက်ကြည့်နေသည်';
-  badge.classList.remove('show');
+  document.getElementById('followBadge').classList.remove('show');
   document.getElementById('launchFab').classList.remove('following');
-  document.getElementById('offerLampFab').classList.remove('following');
   launchBtn.disabled = false;
-  if(completedFollow&&completedFollow.onComplete)completedFollow.onComplete();
 }
 function updateCameraFollow(t){
   if (!cameraFollow) return false;
@@ -2012,15 +1263,12 @@ function updateCameraFollow(t){
     const k = Math.min(1, elapsed / cf.approachDur);
     const e = 1 - Math.pow(1 - k, 3);
     const desiredPos = l.group.position.clone().addScaledVector(cf.offsetDir, cf.followDistance);
-    const desiredTarget = l.group.position.clone().add(cf.targetOffset);
+    const desiredTarget = l.group.position.clone().add(new THREE.Vector3(0, 0.5, 0));
     camera.position.copy(cf.startCamPos).lerp(desiredPos, e);
     controls.target.copy(cf.startTarget).lerp(desiredTarget, e);
-    if (k >= 1){
-      cf.phase = 'follow'; cf.phaseStart = t;
-      if (cf.onArrive){ const onArrive = cf.onArrive; cf.onArrive = null; onArrive(t); }
-    }
+    if (k >= 1){ cf.phase = 'follow'; cf.phaseStart = t; }
   } else if (cf.phase === 'follow'){
-    const desiredTarget = l.group.position.clone().add(cf.targetOffset);
+    const desiredTarget = l.group.position.clone().add(new THREE.Vector3(0, 0.5, 0));
     const camOffset = camera.position.clone().sub(controls.target);
     controls.target.lerp(desiredTarget, 0.22);
     camera.position.copy(controls.target).add(camOffset);
@@ -2032,11 +1280,10 @@ function updateCameraFollow(t){
   } else if (cf.phase === 'return'){
     const k = Math.min(1, elapsed / cf.returnDur);
     const e = 1 - Math.pow(1 - k, 3);
-    camera.position.copy(cf.returnStartCamPos).lerp(cf.startCamPos, e);
-    controls.target.copy(cf.returnStartTarget).lerp(cf.startTarget, e);
+    camera.position.copy(cf.returnStartCamPos).lerp(DEFAULT_CAM_POS, e);
+    controls.target.copy(cf.returnStartTarget).lerp(DEFAULT_TARGET, e);
     if (k >= 1){ finishCameraFollow(); return false; }
   }
-  camera.lookAt(controls.target);
   return true;
 }
 
@@ -2050,13 +1297,6 @@ function showToast(msg){
   toastEl.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(()=> toastEl.classList.remove('show'), 2600);
-}
-let meteorToastTimer = null;
-function showMeteorWishHint(){
-  showToast('ကြယ်ကြွေသွားပြီ — ဆုတောင်းပါ');
-  toastEl.classList.add('meteor-wish');
-  clearTimeout(meteorToastTimer);
-  meteorToastTimer = setTimeout(() => toastEl.classList.remove('meteor-wish'), 2600);
 }
 
 /* TIME MODAL */
@@ -2178,7 +1418,6 @@ document.getElementById('heroTitle').textContent = SEASONS[prefs.season].subtitl
 const composeBackdrop = document.getElementById('composeBackdrop');
 const composeClose = document.getElementById('composeClose');
 const launchFab = document.getElementById('launchFab');
-const offerLampFab = document.getElementById('offerLampFab');
 const wishInput = document.getElementById('wish');
 const launchBtn = document.getElementById('launchBtn');
 const charCount = document.getElementById('charCount');
@@ -2190,7 +1429,6 @@ function openCompose(){
 }
 function closeCompose(){ composeBackdrop.classList.remove('show'); }
 launchFab.addEventListener('click', openCompose);
-offerLampFab.addEventListener('click', offerOilLamp);
 composeClose.addEventListener('click', closeCompose);
 composeBackdrop.addEventListener('click', (e) => { if (e.target === composeBackdrop) closeCompose(); });
 
@@ -2286,7 +1524,6 @@ function launchWish(){
   userWishes.push({
     id: 'w_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
     text, hue: prefs.color, shape: prefs.shape, dedication: prefs.dedicate,
-    position: { x: pos.x, z: pos.z },
     blessings: 0, at: Date.now()
   });
   saveWishes();
@@ -2301,7 +1538,7 @@ function launchWish(){
     if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
     playBell(240, 3.2, 0.11);
   }
-  startCameraFollow(l,{onComplete:scheduleLanternFireworks});
+  startCameraFollow(l);
 }
 launchBtn.addEventListener('click', launchWish);
 wishInput.addEventListener('keydown', (e) => {
@@ -2314,7 +1551,6 @@ const cardText = document.getElementById('cardText');
 const cardHeight = document.getElementById('cardHeight');
 const cardClose = document.getElementById('cardClose');
 const cardIcon = document.getElementById('cardIcon');
-const cardLanternStyle = document.getElementById('cardLanternStyle');
 const cardDedicate = document.getElementById('cardDedicate');
 const cardBless = document.getElementById('cardBless');
 const cardBlessLabel = document.getElementById('cardBlessLabel');
@@ -2355,14 +1591,6 @@ function openCard(lantern){
   currentLantern = lantern;
   currentUserWishRef = findUserWishRef(lantern);
   cardText.textContent = lantern.wish || 'ဆုတောင်းစာ မရှိပါ';
-  const shape = ['classic','cylinder','lotus'].includes(lantern.shape) ? lantern.shape : 'classic';
-  const scale = Number(lantern.baseScale) || 1;
-  const size = scale < 0.92 ? 'small' : scale > 1.36 ? 'large' : 'medium';
-  const shapeNames = { classic:'Classic', cylinder:'Cylinder', lotus:'Lotus' };
-  const sizeNames = { small:'သေး', medium:'အလတ်', large:'ကြီး' };
-  cardIcon.dataset.shape = shape;
-  cardIcon.dataset.size = size;
-  cardLanternStyle.textContent = `${shapeNames[shape]} · ${sizeNames[size]}`;
   const h = Math.round(lantern.group.position.y);
   cardHeight.textContent = `အမြင့် ${h} m`;
   if (lantern.dedication){
@@ -2370,9 +1598,10 @@ function openCard(lantern){
     cardDedicate.textContent = `— ${lantern.dedication} အတွက် ပူဇော်သည် —`;
   } else cardDedicate.style.display = 'none';
   const hueColor = new THREE.Color(lantern.hue || 0xff9028);
-  const cssHue = `#${hueColor.getHexString()}`;
-  cardIcon.style.background = `radial-gradient(ellipse at 50% 62%,#fff3ce 0%,${cssHue} 38%,${cssHue} 64%,rgba(60,22,6,.94) 100%)`;
-  cardIcon.style.boxShadow = `0 0 28px 5px ${cssHue}66,0 0 62px 18px ${cssHue}22`;
+  const cssHue = `rgb(${Math.round(hueColor.r*255)},${Math.round(hueColor.g*255)},${Math.round(hueColor.b*255)})`;
+  const light = `rgb(${Math.min(255, Math.round(hueColor.r*255*1.4))},${Math.min(255, Math.round(hueColor.g*255*1.4))},${Math.min(255, Math.round(hueColor.b*255*1.4))})`;
+  cardIcon.style.background = `radial-gradient(circle at 50% 68%,${light},${cssHue} 45%,rgba(255,120,20,.2) 80%)`;
+  cardIcon.style.boxShadow = `0 0 30px 6px ${cssHue}66, 0 0 70px 22px ${cssHue}22`;
   updateBlessUI();
   cardBackdrop.classList.add('show');
 }
@@ -2403,183 +1632,45 @@ cardBless.addEventListener('click', () => {
   showToast('🙏 ကောင်းချီး ပေးလိုက်ပါပြီ');
 });
 
-function makeWishShareUrl(lantern){
-  const url = new URL(window.location.href);
-  url.hash = '';
-  if (!lantern || !lantern.wish) return url.href;
-  const payload = {
-    text: String(lantern.wish).slice(0,80),
-    hue: Number(lantern.hue) || 0xff9028,
-    shape: ['classic','cylinder','lotus'].includes(lantern.shape) ? lantern.shape : 'classic',
-    size: Number(lantern.baseScale) || 1.15,
-    dedication: String(lantern.dedication || '').slice(0,20)
-  };
-  const bytes = new TextEncoder().encode(JSON.stringify(payload));
-  let binary = '';
-  bytes.forEach(byte => { binary += String.fromCharCode(byte); });
-  const token = btoa(binary).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-  url.hash = `wish=${token}`;
-  return url.href;
-}
-async function copyShareText(text){
-  try {
-    if (navigator.clipboard && window.isSecureContext){ await navigator.clipboard.writeText(text); return true; }
-  } catch(e){}
-  try {
-    const field = document.createElement('textarea');
-    field.value = text; field.setAttribute('readonly','');
-    field.style.position = 'fixed'; field.style.left = '-9999px'; field.style.top = '0';
-    document.body.appendChild(field); field.select();
-    const copied = document.execCommand('copy');
-    field.remove();
-    return copied;
-  } catch(e){ return false; }
-}
-async function shareWishLink(lantern=null){
-  const url = makeWishShareUrl(lantern);
-  const text = lantern && lantern.wish ? lantern.wish : 'သီတင်းကျွတ် မီးပုံးကောင်းကင်ကို ကြည့်ရှုပါ';
-  if (navigator.share){
-    try {
-      await navigator.share({ title:'သီတင်းကျွတ် ဆုတောင်း', text, url });
-      showToast('လင့်ခ် မျှဝေပြီးပါပြီ');
-      return;
-    } catch(error){ if (error && error.name === 'AbortError') return; }
-  }
-  const copied = await copyShareText(url);
-  if (copied) showToast('မျှဝေရန် လင့်ခ်ကို ကော်ပီကူးပြီးပါပြီ');
-  else window.prompt('Copy this share link', url);
-}
-function showSharedWishFromUrl(){
-  try {
-    const token = new URLSearchParams(window.location.hash.slice(1)).get('wish');
-    if (!token || token.length > 3000) return;
-    const base64 = token.replace(/-/g,'+').replace(/_/g,'/');
-    const binary = atob(base64 + '='.repeat((4-base64.length%4)%4));
-    const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
-    const data = JSON.parse(new TextDecoder().decode(bytes));
-    if (!data || typeof data.text !== 'string' || !data.text.trim()) return;
-    const hue = Number.isFinite(Number(data.hue)) ? Math.max(0,Math.min(0xffffff,Number(data.hue))) : 0xff9028;
-    const shape = ['classic','cylinder','lotus'].includes(data.shape) ? data.shape : 'classic';
-    const size = THREE.MathUtils.clamp(Number(data.size)||1.15,.65,1.8);
-    const lantern = spawnLantern(data.text.slice(0,80), {
-      hue, shape, dedication: String(data.dedication||'').slice(0,20),
-      position:{x:0,z:18}, startY:50, age:7, maxSpeed:.8, baseScale:size
-    });
-    setTimeout(() => openCard(lantern), 1250);
-    setTimeout(() => showToast('မျှဝေထားသော ဆုတောင်းမီးပုံးကို ဖွင့်လိုက်ပါပြီ 🏮'), 1900);
-  } catch(error){ console.warn('Shared wish link could not be read.'); }
-}
-
 /* card download */
-function drawLanternIllustration(ctx, cx, cy, hueHex, shape, size){
-  const scale = THREE.MathUtils.clamp((Number(size) || 1.15) / 1.15, 0.78, 1.2);
-  const w = 130 * scale, h = 165 * scale;
-  const left = cx - w/2, right = cx + w/2, top = cy - h/2, bottom = cy + h/2;
-  const color = `#${new THREE.Color(hueHex).getHexString()}`;
-  ctx.beginPath();
-  if (shape === 'cylinder'){
-    ctx.moveTo(cx-w*.30, top); ctx.lineTo(cx+w*.30, top);
-    ctx.quadraticCurveTo(cx+w*.46, top+h*.05, cx+w*.47, top+h*.19);
-    ctx.lineTo(cx+w*.47, bottom-h*.17);
-    ctx.quadraticCurveTo(cx+w*.44, bottom-h*.04, cx+w*.30, bottom);
-    ctx.lineTo(cx-w*.30, bottom);
-    ctx.quadraticCurveTo(cx-w*.44, bottom-h*.04, cx-w*.47, bottom-h*.17);
-    ctx.lineTo(cx-w*.47, top+h*.19);
-    ctx.quadraticCurveTo(cx-w*.46, top+h*.05, cx-w*.30, top);
-  } else if (shape === 'lotus'){
-    const points = [[50,0],[57,7],[64,3],[70,12],[80,8],[85,19],[96,20],[92,34],[100,43],[94,55],[100,67],[92,77],[87,90],[74,91],[65,100],[50,93],[35,100],[26,91],[13,90],[8,77],[0,67],[6,55],[0,43],[8,34],[4,20],[15,19],[20,8],[30,12],[36,3],[43,7]];
-    points.forEach(([x,y], index) => {
-      const px = left + w*x/100, py = top + h*y/100;
-      if (index === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-    });
-    ctx.closePath();
-  } else {
-    ctx.moveTo(cx-w*.34, top);
-    ctx.bezierCurveTo(cx-w*.57, top+h*.08, cx-w*.61, cy+h*.13, cx-w*.43, cy+h*.34);
-    ctx.bezierCurveTo(cx-w*.27, bottom-h*.07, cx-w*.13, bottom-h*.02, cx, bottom);
-    ctx.bezierCurveTo(cx+w*.13, bottom-h*.02, cx+w*.27, bottom-h*.07, cx+w*.43, cy+h*.34);
-    ctx.bezierCurveTo(cx+w*.61, cy+h*.13, cx+w*.57, top+h*.08, cx+w*.34, top);
-    ctx.closePath();
-  }
-
-  const bodyGradient = ctx.createRadialGradient(cx-w*.12, cy-h*.06, 5, cx, cy, w*.78);
-  bodyGradient.addColorStop(0, '#fff5d5');
-  bodyGradient.addColorStop(.24, color);
-  bodyGradient.addColorStop(.78, color);
-  bodyGradient.addColorStop(1, '#612a19');
-  ctx.save();
-  ctx.shadowColor = `${color}bb`; ctx.shadowBlur = 68; ctx.fillStyle = bodyGradient; ctx.fill();
-  ctx.clip();
-  const ribCount = shape === 'lotus' ? 8 : 6;
-  ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(89,42,17,.42)';
-  for (let i=0; i<ribCount; i++){
-    const x = left + w*(i+1)/(ribCount+1);
-    ctx.beginPath(); ctx.moveTo(x, top-4); ctx.quadraticCurveTo(cx+(x-cx)*.86, cy, x, bottom+4); ctx.stroke();
-  }
-  const flame = ctx.createRadialGradient(cx, cy+h*.3, 1, cx, cy+h*.3, w*.24);
-  flame.addColorStop(0, 'rgba(255,255,220,.98)'); flame.addColorStop(.24, 'rgba(255,215,117,.9)'); flame.addColorStop(1, 'rgba(255,151,42,0)');
-  ctx.fillStyle = flame; ctx.beginPath(); ctx.ellipse(cx, cy+h*.3, w*.23, h*.17, 0, 0, Math.PI*2); ctx.fill();
-  ctx.restore();
-
-  ctx.save();
-  ctx.strokeStyle = 'rgba(255,231,177,.82)'; ctx.lineWidth = 5;
-  ctx.beginPath(); ctx.ellipse(cx, top+5, shape === 'cylinder' ? w*.3 : w*.34, 8*scale, 0, 0, Math.PI*2); ctx.stroke();
-  ctx.strokeStyle = 'rgba(114,61,27,.82)'; ctx.lineWidth = 7;
-  ctx.beginPath(); ctx.ellipse(cx, bottom-5, shape === 'cylinder' ? w*.3 : w*.43, 11*scale, 0, 0, Math.PI*2); ctx.stroke();
-  ctx.strokeStyle = 'rgba(255,225,164,.62)'; ctx.lineWidth = 4;
-  const beltY = shape === 'cylinder' ? cy+h*.03 : cy+h*.13;
-  ctx.beginPath(); ctx.ellipse(cx, beltY, shape === 'cylinder' ? w*.47 : w*.41, 8*scale, 0, 0, Math.PI*2); ctx.stroke();
-  ctx.restore();
-}
-
-function drawWishCardToCanvas(wishText, hueHex, dedication, shape='classic', size=1.15){
+function drawWishCardToCanvas(wishText, hueHex, dedication){
   const W = 1080, H = 1350;
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const ctx = c.getContext('2d');
   const bg = ctx.createRadialGradient(W/2, H*0.15, 0, W/2, H*0.15, H*0.9);
-  bg.addColorStop(0,'#30234d'); bg.addColorStop(0.55,'#15102b'); bg.addColorStop(1,'#03040b');
+  bg.addColorStop(0,'#2a1e4d'); bg.addColorStop(0.55,'#120e28'); bg.addColorStop(1,'#02030a');
   ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
-  const cssHue = `#${new THREE.Color(hueHex).getHexString()}`;
-  const glowColor = `${cssHue}99`;
+  const hueColor = new THREE.Color(hueHex);
+  const cssHue = `rgba(${Math.round(hueColor.r*255)},${Math.round(hueColor.g*255)},${Math.round(hueColor.b*255)},0.55)`;
   const glow = ctx.createRadialGradient(W/2, 240, 0, W/2, 240, 520);
-  glow.addColorStop(0, glowColor); glow.addColorStop(1, 'rgba(255,140,30,0)');
+  glow.addColorStop(0, cssHue); glow.addColorStop(1, 'rgba(255,140,30,0)');
   ctx.fillStyle = glow; ctx.fillRect(0, 0, W, 640);
-  ctx.strokeStyle = 'rgba(255,208,129,0.48)'; ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(255,190,90,0.35)'; ctx.lineWidth = 2;
   const pad = 42; ctx.beginPath(); ctx.roundRect(pad, pad, W-pad*2, H-pad*2, 42); ctx.stroke();
-  ctx.strokeStyle = 'rgba(255,208,129,0.2)'; ctx.lineWidth = 1; ctx.setLineDash([5, 11]);
+  ctx.strokeStyle = 'rgba(255,190,90,0.14)'; ctx.lineWidth = 1; ctx.setLineDash([6, 10]);
   ctx.beginPath(); ctx.roundRect(pad+16, pad+16, W-(pad+16)*2, H-(pad+16)*2, 30); ctx.stroke();
   ctx.setLineDash([]);
-  const cx = W/2, cy = 294;
+  const cx = W/2, cy = 300, lw = 130, lh = 165;
+  const iconGrad = ctx.createRadialGradient(cx, cy+lh*0.15, 10, cx, cy+lh*0.15, lh*0.9);
+  iconGrad.addColorStop(0, '#fff3c4'); iconGrad.addColorStop(0.45, '#ffb02e');
+  iconGrad.addColorStop(1, 'rgba(255,120,20,0.1)');
   ctx.save();
-  ctx.strokeStyle = 'rgba(255,212,145,.55)'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(cx, cy, 126, 0, Math.PI*2); ctx.stroke();
-  ctx.strokeStyle = 'rgba(255,212,145,.22)'; ctx.setLineDash([4,10]);
-  ctx.beginPath(); ctx.arc(cx, cy, 111, 0, Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
-  ctx.fillStyle = '#ffe2a9';
-  for (const angle of [-Math.PI/2, 0, Math.PI/2, Math.PI]){
-    const x = cx + Math.cos(angle)*126, y = cy + Math.sin(angle)*126;
-    ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
-  }
+  ctx.shadowColor = cssHue; ctx.shadowBlur = 80; ctx.fillStyle = iconGrad;
+  ctx.beginPath();
+  ctx.moveTo(cx - lw*0.5, cy - lh*0.5);
+  ctx.bezierCurveTo(cx - lw*0.62, cy - lh*0.1, cx - lw*0.45, cy + lh*0.4, cx, cy + lh*0.5);
+  ctx.bezierCurveTo(cx + lw*0.45, cy + lh*0.4, cx + lw*0.62, cy - lh*0.1, cx + lw*0.5, cy - lh*0.5);
+  ctx.closePath(); ctx.fill();
   ctx.restore();
-  drawLanternIllustration(ctx, cx, cy, hueHex, shape, size);
-  const shapeNames = { classic:'CLASSIC', cylinder:'CYLINDER', lotus:'LOTUS' };
-  const sizeNames = { small:'သေး', medium:'အလတ်', large:'ကြီး' };
-  const sizeClass = size < .92 ? 'small' : size > 1.36 ? 'large' : 'medium';
-  ctx.fillStyle = '#f5cf91';
-  ctx.font = '700 19px "Noto Sans Myanmar","Padauk",sans-serif';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(`${shapeNames[shape] || 'CLASSIC'}  ·  ${sizeNames[sizeClass]}`, W/2, 445);
-  ctx.save();
-  ctx.strokeStyle = 'rgba(255,208,129,.36)'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(W/2 - 92, 484); ctx.lineTo(W/2 - 18, 484); ctx.moveTo(W/2 + 18, 484); ctx.lineTo(W/2 + 92, 484); ctx.stroke();
-  ctx.fillStyle = '#ffdda0'; ctx.beginPath(); ctx.moveTo(W/2,476); ctx.lineTo(W/2+8,484); ctx.lineTo(W/2,492); ctx.lineTo(W/2-8,484); ctx.closePath(); ctx.fill();
-  ctx.restore();
+  ctx.strokeStyle = 'rgba(120,70,30,0.7)'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.ellipse(cx, cy - lh*0.5, lw*0.5, 10, 0, 0, Math.PI*2); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(cx, cy + lh*0.5, lw*0.48, 12, 0, 0, Math.PI*2); ctx.stroke();
   ctx.fillStyle = '#a08cc4';
   ctx.font = '600 22px "Noto Sans Myanmar","Padauk",sans-serif';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('ဆုတောင်းစာ', W/2, 530);
+  ctx.fillText('ဆုတောင်းစာ', W/2, 500);
   ctx.strokeStyle = 'rgba(255,190,90,0.25)'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(W/2 - 80, 566); ctx.lineTo(W/2 + 80, 566); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W/2 - 80, 540); ctx.lineTo(W/2 + 80, 540); ctx.stroke();
   const maxWidth = W - 200;
   const fontSize = 44;
   const lineH = fontSize * 1.7;
@@ -2624,7 +1715,7 @@ function drawWishCardToCanvas(wishText, hueHex, dedication, shape='classic', siz
 }
 cardDownload.addEventListener('click', () => {
   if (!currentLantern) return;
-  const c = drawWishCardToCanvas(currentLantern.wish, currentLantern.hue, currentLantern.dedication, currentLantern.shape, currentLantern.baseScale);
+  const c = drawWishCardToCanvas(currentLantern.wish, currentLantern.hue, currentLantern.dedication);
   c.toBlob(blob => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -2636,62 +1727,23 @@ cardDownload.addEventListener('click', () => {
 });
 cardShare.addEventListener('click', async () => {
   if (!currentLantern) return;
-  const link = makeWishShareUrl(currentLantern);
-  const text = currentLantern.wish + (currentLantern.dedication ? ` (${currentLantern.dedication} အတွက်)` : '');
-  const c = drawWishCardToCanvas(currentLantern.wish, currentLantern.hue, currentLantern.dedication, currentLantern.shape, currentLantern.baseScale);
+  const c = drawWishCardToCanvas(currentLantern.wish, currentLantern.hue, currentLantern.dedication);
   c.toBlob(async blob => {
-    if (blob && navigator.canShare){
-      const file = new File([blob], 'wish.png', { type:'image/png' });
-      if (navigator.canShare({ files:[file] })){
-        try {
-          await navigator.share({ title:'သီတင်းကျွတ် ဆုတောင်းစာ', text, url:link, files:[file] });
-          showToast('ဆုတောင်းစာနှင့် လင့်ခ် မျှဝေပြီးပါပြီ');
-          return;
-        } catch(error){ if (error && error.name === 'AbortError') return; }
-      }
+    const file = new File([blob], 'wish.png', { type:'image/png' });
+    const shareData = {
+      title: 'သီတင်းကျွတ် ဆုတောင်းစာ',
+      text: currentLantern.wish + (currentLantern.dedication ? ` (${currentLantern.dedication} အတွက်)` : ''),
+      files: [file]
+    };
+    if (navigator.canShare && navigator.canShare({ files: [file] })){
+      try { await navigator.share(shareData); return; } catch(e){}
     }
-    await shareWishLink(currentLantern);
+    try {
+      await navigator.clipboard.writeText(currentLantern.wish);
+      showToast('ဆုတောင်းစာ ကော်ပီကူးပြီးပါပြီ 📋');
+    } catch(e){ showToast('မျှဝေလို့ မရပါ 😕'); }
   }, 'image/png');
 });
-
-/* Photo mode captures the WebGL scene only; no device camera permission is needed. */
-const photoBtn = document.getElementById('photoBtn');
-const photoTools = document.getElementById('photoTools');
-const photoCaptureBtn = document.getElementById('photoCaptureBtn');
-const photoShareBtn = document.getElementById('photoShareBtn');
-const photoExitBtn = document.getElementById('photoExitBtn');
-function setPhotoMode(enabled){
-  document.body.classList.toggle('photo-mode', enabled);
-  photoTools.setAttribute('aria-hidden', String(!enabled));
-}
-photoBtn.addEventListener('click', () => setPhotoMode(true));
-photoExitBtn.addEventListener('click', () => setPhotoMode(false));
-photoShareBtn.addEventListener('click', () => shareWishLink(currentLantern));
-photoCaptureBtn.addEventListener('click', () => {
-  const original = photoCaptureBtn.innerHTML;
-  photoCaptureBtn.disabled = true;
-  photoCaptureBtn.textContent = 'သိမ်းဆည်းနေသည်…';
-  const finish = (message) => {
-    photoCaptureBtn.innerHTML = original;
-    photoCaptureBtn.disabled = false;
-    photoCaptureBtn.title = message;
-    setTimeout(() => { photoCaptureBtn.title = 'Save scene photo'; }, 1800);
-  };
-  try {
-    canvas.toBlob(blob => {
-      if (!blob){ finish('Photo could not be saved'); return; }
-      const objectUrl = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = objectUrl;
-      link.download = `thadingyut-photo-${new Date().toISOString().slice(0,10)}.png`;
-      document.body.appendChild(link); link.click(); link.remove();
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 4000);
-      finish('Photo saved');
-    }, 'image/png');
-  } catch(error){ finish('Photo could not be saved'); }
-});
-document.getElementById('linkShareBtn').addEventListener('click', () => shareWishLink(null));
-setTimeout(showSharedWishFromUrl, 1050);
 
 /* INFO MODAL */
 const infoBackdrop = document.getElementById('infoBackdrop');
@@ -2777,7 +1829,6 @@ document.addEventListener('keydown', (e) => {
     infoBackdrop.classList.remove('show');
     wishesBackdrop.classList.remove('show');
     timeBackdrop.classList.remove('show');
-    setPhotoMode(false);
   }
 });
 
@@ -2836,7 +1887,6 @@ const _ambNight = new THREE.Color(0x1c2038);
 
 let _lastTimeUIUpdate = 0;
 let _lastDayMode = false;
-let currentDayFactor = 0;
 
 function updateEnvironment(t){
   const hours = getHours();
@@ -2888,7 +1938,6 @@ function updateEnvironment(t){
 
   /* Lighting */
   const df = smoothstep(-150, 250, sunPos.y);
-  currentDayFactor = df;
   hemiLight.color.copy(_hemiNight).lerp(_hemiDay, df);
   hemiLight.groundColor.copy(_hemiGroundNight).lerp(_hemiGroundDay, df);
   hemiLight.intensity = 0.32 + df * 0.5;
@@ -2905,14 +1954,6 @@ function updateEnvironment(t){
 
   /* Fog color follows sky */
   scene.fog.color.copy(midC).multiplyScalar(0.45);
-
-  /* Daytime clouds drift softly across the same sky; night clears them away. */
-  cloudMaterial.opacity = df * .62;
-  cloudSprites.forEach(cloud => {
-    cloud.visible = df > .015;
-    cloud.position.x += cloud.userData.drift * .035;
-    if (cloud.position.x > 760) cloud.position.x = -760;
-  });
 
   /* Stars visibility */
   starMaterial.uniforms.uOpacity.value = 1 - df;
@@ -2952,46 +1993,39 @@ function updateEnvironment(t){
    ═══════════════════════════════════════════ */
 const clock = new THREE.Clock();
 
-function updateLanternLocalPhysics(l,dt,t){
-  l.age+=dt;
-  const speed=l.maxSpeed*(1-Math.exp(-l.age*.55));
-  l.group.position.y+=speed*dt;
-  const sway=l.swayAmp*(1-Math.exp(-l.age*.25));
-  const windPush=wind.strength*8*(1-Math.exp(-l.age*.4));
-  l.group.position.x=l.baseX+Math.sin(t*l.swayFreq+l.phase)*sway+wind.dirX*windPush*l.age*.06;
-  l.group.position.z=l.baseZ+Math.cos(t*l.swayFreq*.78+l.phase)*sway+wind.dirZ*windPush*l.age*.06;
-  l.group.rotation.z=Math.sin(t*.85+l.phase)*.09+wind.dirX*wind.strength*.4;
-  l.group.rotation.x=Math.cos(t*.62+l.phase)*.065+wind.dirZ*wind.strength*.4;
-  const progress=Math.min(1,l.age/1.3);
-  const ease=1-Math.pow(1-progress,3);
-  l.group.scale.setScalar(l.baseScale*ease);
-  if(l.group.position.y>280&&!cameraFollow){
-    const p=randomSkyPosition();
-    l.baseX=p.x;l.baseZ=p.z;
-    l.group.position.set(p.x,6+Math.random()*20,p.z);
-    l.phase=Math.random()*Math.PI*2;
+function updateLantern(l, dt, t){
+  l.age += dt;
+  const speed = l.maxSpeed * (1 - Math.exp(-l.age * 0.55));
+  l.group.position.y += speed * dt;
+  const sway = l.swayAmp * (1 - Math.exp(-l.age * 0.25));
+  const windPush = wind.strength * 8 * (1 - Math.exp(-l.age * 0.4));
+  l.group.position.x = l.baseX + Math.sin(t * l.swayFreq + l.phase) * sway + wind.dirX * windPush * l.age * 0.06;
+  l.group.position.z = l.baseZ + Math.cos(t * l.swayFreq * 0.78 + l.phase) * sway + wind.dirZ * windPush * l.age * 0.06;
+  l.group.rotation.z = Math.sin(t * 0.85 + l.phase) * 0.09 + wind.dirX * wind.strength * 0.4;
+  l.group.rotation.x = Math.cos(t * 0.62 + l.phase) * 0.065 + wind.dirZ * wind.strength * 0.4;
+  const s = Math.min(1, l.age / 1.3);
+  const ease = 1 - Math.pow(1 - s, 3);
+  l.group.scale.setScalar(l.baseScale * ease);
+  const ud = l.body && l.body.userData;
+  if (ud && ud.flameCore){
+    const f1 = 1 + Math.sin(t * 11 + l.phase) * 0.13;
+    const f2 = 1 + Math.sin(t * 21 + l.phase * 2.1) * 0.07;
+    const flick = f1 * f2;
+    ud.flameCore.scale.set(1, 1.7 * flick, 1);
+    ud.flameOuter.scale.set(flick, 1.9 * flick, 1);
+    ud.flameOuter.material.opacity = 0.30 + Math.sin(t * 14 + l.phase) * 0.06;
+    ud.innerGlow.material.opacity = (0.34 + Math.sin(t * 8 + l.phase) * 0.07) * (1 + (l.brightness||0)*0.4);
+    ud.outerGlow.material.opacity = 0.20 + Math.sin(t * 6 + l.phase) * 0.05;
+  }
+  if (l.label) l.label.material.opacity = Math.min(1, l.age / 1.8) * l.labelOpacity;
+  if (l.smokeTrail) updateSmoke(l.smokeTrail, l.group.position, dt, t);
+  if (l.group.position.y > 280 && !cameraFollow){
+    const p = randomSkyPosition();
+    l.baseX = p.x; l.baseZ = p.z;
+    l.group.position.set(p.x, 6 + Math.random()*20, p.z);
+    l.phase = Math.random()*Math.PI*2;
   }
 }
-function updateLanternVisuals(l,dt,t){
-  const ud=l.body&&l.body.userData;
-  if(ud&&ud.flameCore){
-    const f1=1+Math.sin(t*11+l.phase)*.13;
-    const f2=1+Math.sin(t*21+l.phase*2.1)*.07;
-    const flick=f1*f2;
-    ud.flameCore.scale.set(1,1.7*flick,1);
-    ud.flameOuter.scale.set(flick,1.9*flick,1);
-    ud.flameOuter.material.opacity=.30+Math.sin(t*14+l.phase)*.06;
-    ud.innerGlow.material.opacity=(.34+Math.sin(t*8+l.phase)*.07)*(1+(l.brightness||0)*.4);
-    ud.outerGlow.material.opacity=.20+Math.sin(t*6+l.phase)*.05;
-  }
-  if(l.label)l.label.material.opacity=Math.min(1,l.age/1.8)*l.labelOpacity;
-  if(l.smokeTrail)updateSmoke(l.smokeTrail,l.group.position,dt,t);
-}
-function updateLantern(l,dt,t){
-  if(!lanternPhysicsWorkerEnabled)updateLanternLocalPhysics(l,dt,t);
-  updateLanternVisuals(l,dt,t);
-}
-
 function updateOilLamps(t){
   const mats = pagoda.userData.flameMats;
   if (!mats) return;
@@ -3020,21 +2054,16 @@ function animate(){
 
   updateWind(t);
   updateEnvironment(t);
-  updateShootingStars(dt, t, 1-currentDayFactor);
-  tickLanternPhysicsWorker(dt,t);
 
   for (let i=0;i<lanterns.length;i++) updateLantern(lanterns[i], dt, t);
-  updateFireworks(dt);
   updateEmbers(dt, t);
   updateOilLamps(t);
-  updateOfferingLamps(t);
 
   for (const s of spotPivots) s.pivot.rotation.y += s.speed * dt * s.dir;
   moon.rotation.y += dt * 0.005;
 
   const following = updateCameraFollow(t);
-  const trackingMeteor = !following && updateMeteorCameraFocus(t);
-  if (!following && !trackingMeteor) controls.update();
+  if (!following) controls.update();
 
   composer.render();
 }
