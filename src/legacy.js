@@ -1093,9 +1093,41 @@ try {
   const raw = localStorage.getItem('thadingyut_wishes_v2');
   if (raw) userWishes = JSON.parse(raw) || [];
 } catch(e){ userWishes = []; }
+// Public wishes are display-only: never merge them into local storage/profile data.
+let communityWishes = Array.isArray(window.__thadingyutCommunityWishes)
+  ? window.__thadingyutCommunityWishes.filter(wish => wish && typeof wish.text === 'string')
+  : [];
+function wishTimeValue(value){
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+function wishDedupeKey(wish, isCommunity = false){
+  if (isCommunity && wish.source_id != null) return `local:${String(wish.source_id)}`;
+  if (!isCommunity && wish.id != null) return `local:${String(wish.id)}`;
+  return `text:${String(wish.text || '')}\u0000${wishTimeValue(wish.at)}`;
+}
+function getCombinedWishes(){
+  const merged = new Map();
+  userWishes.forEach(wish => {
+    if (wish && typeof wish.text === 'string' && wish.text.trim()) merged.set(wishDedupeKey(wish), { ...wish, _isCommunity:false });
+  });
+  communityWishes.forEach(wish => {
+    if (!wish || typeof wish.text !== 'string' || !wish.text.trim()) return;
+    const key = wishDedupeKey(wish, true);
+    if (!merged.has(key)) merged.set(key, { ...wish, _isCommunity:true });
+  });
+  return Array.from(merged.values()).sort((a,b) => wishTimeValue(b.at) - wishTimeValue(a.at));
+}
+window.addEventListener('thadingyut:community-wishes', event => {
+  communityWishes = Array.isArray(event.detail)
+    ? event.detail.filter(wish => wish && typeof wish.text === 'string')
+    : [];
+  syncCommunityWishes();
+});
 function saveWishes(){
   try {
-    if (userWishes.length > 40) userWishes = userWishes.slice(-40);
     localStorage.setItem('thadingyut_wishes_v2', JSON.stringify(userWishes));
     announceCloudChange();
   } catch(e){}
@@ -1589,6 +1621,7 @@ function spawnLantern(wish, opts = {}){
     baseScale: opts.baseScale || (0.9 + Math.random()*0.35),
     labelOpacity: opts.isUser ? 1.0 : 0.78,
     isUser: !!opts.isUser,
+    isAmbient: !!opts.isAmbient,
     createdAt: Date.now()
   };
   lantern.group.scale.setScalar(lantern.baseScale * (opts.age ? 1 : 0.05));
@@ -1596,7 +1629,11 @@ function spawnLantern(wish, opts = {}){
   scene.add(group);
   lanterns.push(lantern);
   registerLanternPhysics(lantern);
-  while (lanterns.length > MAX_LANTERNS){ const old = lanterns.shift(); disposeLantern(old); }
+  while (lanterns.length > MAX_LANTERNS){
+    const oldestWishIndex = lanterns.findIndex(item => !item.isAmbient);
+    const old = lanterns.splice(oldestWishIndex >= 0 ? oldestWishIndex : 0, 1)[0];
+    disposeLantern(old);
+  }
   updateCounter();
   return lantern;
 }
@@ -1929,25 +1966,23 @@ const DEFAULT_WISH_COUNT = 60;
 for (let i=0;i<DEFAULT_WISH_COUNT;i++){
   const wish = AMBIENT_WISHES[Math.floor(Math.random()*AMBIENT_WISHES.length)];
   const pos = randomSkyPosition();
-  spawnLantern(wish, { position: pos, startY: 8 + Math.random()*220, age: 6 + Math.random()*45 });
+  spawnLantern(wish, { isAmbient:true, position: pos, startY: 8 + Math.random()*220, age: 6 + Math.random()*45 });
 }
 
-// Recreate the newest saved user lanterns when the scene is opened again.
-// The scene keeps a fixed budget so older wishes beyond that budget remain in
-// the wishes list, but do not push the 3D scene past its existing limit.
+// Reserve 40 recent wish slots after the 60 ambient lanterns; all wishes remain
+// available in the readable list even when they are outside this scene budget.
 const restoreSlots = Math.max(0, MAX_LANTERNS - lanterns.length);
-const savedWishes = Array.isArray(userWishes)
-  ? userWishes.filter(wish => wish && typeof wish.text === 'string' && wish.text.trim())
-  : [];
-const wishesToRestore = restoreSlots ? savedWishes.slice(-restoreSlots) : [];
+const wishesToRestore = restoreSlots ? getCombinedWishes().slice(0, restoreSlots).reverse() : [];
+const spawnedCommunityWishIds = new Set();
 for (let index=0; index<wishesToRestore.length; index++){
   const wish = wishesToRestore[index];
   const pos = getRestoredWishPosition(wish, index);
   const lantern = spawnLantern(wish.text, {
-    isUser: true,
+    isUser: !wish._isCommunity,
     hue: wish.hue,
     shape: wish.shape,
     dedication: wish.dedication,
+    isCommunity:wish._isCommunity,
     position: pos,
     startY: 42 + (index % 4) * 7,
     age: 4 + (index % 3) * 2,
@@ -1955,6 +1990,35 @@ for (let index=0; index<wishesToRestore.length; index++){
     baseScale: prefs.size
   });
   lantern.blessings = Number(wish.blessings) || 0;
+  lantern.wishId = wish.id || null;
+  lantern.communityWishId = wish._isCommunity ? String(wish.id || wishDedupeKey(wish, true)) : null;
+  if (lantern.communityWishId) spawnedCommunityWishIds.add(lantern.communityWishId);
+}
+// Wishes outside the 40-lantern scene budget still stay in the full list, and
+// must not be mistaken for new arrivals on the next complete poll response.
+communityWishes.forEach(wish => spawnedCommunityWishIds.add(String(wish.id || wishDedupeKey(wish, true))));
+
+function syncCommunityWishes(){
+  const locals = new Set(userWishes.map(wish => wish && wishDedupeKey(wish)).filter(Boolean));
+  communityWishes.slice().sort((a,b) => wishTimeValue(a.at) - wishTimeValue(b.at)).forEach((wish, index) => {
+    const localMatch = wishDedupeKey(wish, true);
+    if (locals.has(localMatch)) return;
+    const publicId = String(wish.id || wishDedupeKey(wish, true));
+    if (spawnedCommunityWishIds.has(publicId)) return;
+    const lantern = spawnLantern(wish.text, {
+      isCommunity:true,
+      hue: wish.hue, shape: wish.shape, dedication: wish.dedication,
+      position: getRestoredWishPosition(wish, index),
+      startY: 42 + (index % 4) * 7, age: 4 + (index % 3) * 2,
+      maxSpeed: 6.8, baseScale: 1.15
+    });
+    lantern.blessings = Number(wish.blessings) || 0;
+    lantern.at = wishTimeValue(wish.at) || Date.now();
+    lantern.communityWishId = publicId;
+    spawnedCommunityWishIds.add(publicId);
+  });
+  updateWishesBadge();
+  if (wishesBackdrop && wishesBackdrop.classList.contains('show')) renderWishesPanel();
 }
 
 /* ═══════════════════════════════════════════
@@ -2285,12 +2349,14 @@ function launchWish(){
   l.swayAmp = 3.0; l.swayFreq = 0.4;
   l.label.position.y = -3.6;
   l.brightness = Math.min(1, 0.55 + text.length * 0.005);
-  userWishes.push({
+  const savedWish = {
     id: 'w_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
     text, hue: prefs.color, shape: prefs.shape, dedication: prefs.dedicate,
     position: { x: pos.x, z: pos.z },
     blessings: 0, at: Date.now()
-  });
+  };
+  l.wishId = savedWish.id;
+  userWishes.push(savedWish);
   saveWishes();
   updateWishesBadge();
   wishInput.value = ''; charCount.textContent = '0 / 80'; charCount.classList.remove('warn');
@@ -2349,7 +2415,7 @@ canvas.addEventListener('pointerup', (e) => {
 function findUserWishRef(lantern){
   if (!lantern.isUser) return null;
   for (let i=userWishes.length-1; i>=0; i--){
-    if (userWishes[i].text === lantern.wish) return userWishes[i];
+    if ((lantern.wishId && userWishes[i].id === lantern.wishId) || (!lantern.wishId && userWishes[i].text === lantern.wish)) return userWishes[i];
   }
   return null;
 }
@@ -2713,30 +2779,30 @@ wishesClose.addEventListener('click', () => wishesBackdrop.classList.remove('sho
 wishesBackdrop.addEventListener('click', (e) => { if (e.target === wishesBackdrop) wishesBackdrop.classList.remove('show'); });
 
 function updateWishesBadge(){
-  const n = userWishes.length;
-  if (n > 0){ wishesBadge.style.display = 'flex'; wishesBadge.textContent = n; }
+  const n = getCombinedWishes().length;
+  if (n > 0){ wishesBadge.style.display = 'flex'; wishesBadge.textContent = n > 99 ? '99+' : n; }
   else wishesBadge.style.display = 'none';
 }
 function renderWishesPanel(){
   const list = document.getElementById('wishesList');
+  const allWishes = getCombinedWishes();
   const st = getStreak();
-  document.getElementById('statTotal').textContent = userWishes.length;
-  document.getElementById('statBlessed').textContent = userWishes.reduce((a,w) => a + (w.blessings||0), 0);
-  document.getElementById('statFlying').textContent = userWishes.filter(w => Date.now() - w.at < 3*3600*1000).length;
+  document.getElementById('statTotal').textContent = allWishes.length;
+  document.getElementById('statBlessed').textContent = allWishes.reduce((a,w) => a + (Number(w.blessings)||0), 0);
+  document.getElementById('statFlying').textContent = allWishes.filter(w => Date.now() - wishTimeValue(w.at) < 3*3600*1000).length;
   const streakEl = document.getElementById('streakText');
   if (st.count > 0){
     streakEl.innerHTML = `🔥 နေ့စဉ် streak <b style="color:#ffd894">${st.count}</b> ရက်<small>စုစုပေါင်း ${st.total||0} ကြိမ် ဆုတောင်းခဲ့ပြီ</small>`;
   } else {
     streakEl.innerHTML = `🔥 နေ့စဉ် ဆုတောင်း streak<small>ဒီနေ့ ဆုတောင်းတစ်ခု လွှတ်ကြည့်ပါ</small>`;
   }
-  if (userWishes.length === 0){
-    list.innerHTML = `<div class="empty"><span class="icon">🏮</span>သင် ဆုတောင်းတစ်ခုမှ မလွှတ်ရသေးပါ<br>မီးပုံးတစ်လုံး လွှတ်ကြည့်ပါ</div>`;
+  if (allWishes.length === 0){
+    list.innerHTML = `<div class="empty"><span class="icon">🏮</span>ဆုတောင်းများ မရှိသေးပါ<br>မီးပုံးတစ်လုံး လွှတ်ကြည့်ပါ</div>`;
     return;
   }
   list.innerHTML = '';
-  for (let i=userWishes.length-1; i>=0; i--){
-    const w = userWishes[i];
-    const hueColor = new THREE.Color(w.hue || 0xff9028);
+  allWishes.forEach(w => {
+    const hueColor = new THREE.Color(Number(w.hue) || 0xff9028);
     const cssHue = `rgb(${Math.round(hueColor.r*255)},${Math.round(hueColor.g*255)},${Math.round(hueColor.b*255)})`;
     const el = document.createElement('div');
     el.className = 'item';
@@ -2745,19 +2811,28 @@ function renderWishesPanel(){
       <div class="info">
         <div class="wish">${escapeHtml(w.text)}</div>
         <div class="meta-row2">
-          <span>${timeAgo(w.at)}</span>
-          ${w.blessings ? `<span class="bl">🙏 ${w.blessings}</span>` : ''}
+          <span>${timeAgo(wishTimeValue(w.at)||Date.now())}</span>
+          ${Number(w.blessings) ? `<span class="bl">🙏 ${Number(w.blessings)}</span>` : ''}
           ${w.dedication ? `<span>— ${escapeHtml(w.dedication)}</span>` : ''}
         </div>
       </div>
     `;
     el.addEventListener('click', () => {
-      const live = lanterns.find(l => l.isUser && l.wish === w.text);
-      if (live){ wishesBackdrop.classList.remove('show'); openCard(live); }
-      else showToast('ဒီမီးပုံး ကောင်းကင်ပေါ် မရှိတော့ပါ 🏮');
+      const live = lanterns.find(l => w._isCommunity
+        ? l.communityWishId === String(w.id || wishDedupeKey(w, true))
+        : (w.id && l.wishId === w.id) || (l.isUser && l.wish === w.text));
+      const cardLantern = live || {
+        wish:w.text, hue:Number(w.hue)||0xff9028, shape:w.shape||'classic',
+        dedication:w.dedication||'', blessings:Number(w.blessings)||0, baseScale:1.15,
+        group:{position:{y:0}}, isUser:!w._isCommunity, wishId:w.id||null,
+        communityWishId:w._isCommunity ? String(w.id || wishDedupeKey(w, true)) : null,
+        maxSpeed:0
+      };
+      wishesBackdrop.classList.remove('show');
+      openCard(cardLantern);
     });
     list.appendChild(el);
-  }
+  });
 }
 function timeAgo(ts){
   const d = Date.now() - ts;

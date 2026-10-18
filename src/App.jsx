@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { toCloudProxyInput } from './cloud-route.js';
+import { startCommunityFeed } from './community-feed.js';
 import legacyMarkup from './legacy-ui.html?raw';
 import './app.css';
 
@@ -33,13 +34,21 @@ function readLocalBundle() {
 function applyCloudBundle(bundle) {
   for (const field of Object.keys(STORAGE_KEYS)) {
     if (bundle[field] !== null && bundle[field] !== undefined) {
-      window.localStorage.setItem(STORAGE_KEYS[field], JSON.stringify(bundle[field]));
+      let value = bundle[field];
+      if (field === 'wishes') {
+        const local = readLocalBundle().wishes;
+        const combined = [...(Array.isArray(value) ? value : []), ...(Array.isArray(local) ? local : [])];
+        value = [...new Map(combined.filter(w => w && typeof w.text === 'string').map(w => [w.id || `${w.text}:${w.at}`, w])).values()];
+        value.sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
+      }
+      window.localStorage.setItem(STORAGE_KEYS[field], JSON.stringify(value));
     }
   }
 }
 
 export default function App() {
   const [syncStatus, setSyncStatus] = useState('Preparing the lantern sky…');
+  const [communityStatus, setCommunityStatus] = useState('အများဆုတောင်းများ ဖတ်နေသည်…');
 
   useEffect(() => {
     let disposed = false;
@@ -50,6 +59,17 @@ export default function App() {
     let cloudActive = false;
     let usingLocalFallback = false;
     const cloudAbortController = new AbortController();
+    const stopCommunityFeed = startCommunityFeed({
+      onWishes: (wishes) => {
+        if (disposed) return;
+        window.__thadingyutCommunityWishes = wishes;
+        window.dispatchEvent(new CustomEvent('thadingyut:community-wishes', { detail: wishes }));
+        setCommunityStatus(`အများဆုတောင်း ${wishes.length} ခု`);
+      },
+      onError: () => {
+        if (!disposed) setCommunityStatus('အများဆုတောင်း ချိတ်ဆက်မှု ပြန်ကြိုးစားနေသည်…');
+      },
+    });
 
     const setStatus = (value) => {
       if (!disposed) setSyncStatus(value);
@@ -225,6 +245,7 @@ export default function App() {
     return () => {
       disposed = true;
       cloudActive = false;
+      stopCommunityFeed();
       window.clearTimeout(syncTimer);
       if (listener) window.removeEventListener('thadingyut:data-change', listener);
       if (!cloudAbortController.signal.aborted) cloudAbortController.abort();
@@ -234,7 +255,7 @@ export default function App() {
   return (
     <>
       <div className="legacy-mount" dangerouslySetInnerHTML={{ __html: legacyMarkup }} />
-      <div className="cloud-status" aria-live="polite">{syncStatus}</div>
+      <div className="cloud-status" aria-live="polite">{communityStatus} · {syncStatus}</div>
     </>
   );
 }
