@@ -4,7 +4,7 @@ import { toCloudProxyInput } from './cloud-route.js';
 import legacyMarkup from './legacy-ui.html?raw';
 import './app.css';
 
-const CLOUD_REQUEST_TIMEOUT_MS = 3000;
+const CLOUD_REQUEST_TIMEOUT_MS = 8000;
 
 const STORAGE_KEYS = {
   preferences: 'thadingyut_prefs_v2',

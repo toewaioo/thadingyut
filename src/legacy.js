@@ -1425,7 +1425,8 @@ const AMBIENT_WISHES = [
   'အခက်အခဲများ ကျော်လွှားနိုင်ပါစေ','မေတ္တာတရား ပြန့်ပွားပါစေ'
 ];
 let lanterns = [];
-const MAX_LANTERNS = 46;
+// Reserve room for 60 default lanterns plus up to 40 saved user wishes.
+const MAX_LANTERNS = 100;
 const raycaster = new THREE.Raycaster();
 const pointer   = new THREE.Vector2();
 const countEl = document.getElementById('count');
@@ -1924,7 +1925,8 @@ function updateFireworks(dt){
   }
 }
 
-for (let i=0;i<32;i++){
+const DEFAULT_WISH_COUNT = 60;
+for (let i=0;i<DEFAULT_WISH_COUNT;i++){
   const wish = AMBIENT_WISHES[Math.floor(Math.random()*AMBIENT_WISHES.length)];
   const pos = randomSkyPosition();
   spawnLantern(wish, { position: pos, startY: 8 + Math.random()*220, age: 6 + Math.random()*45 });

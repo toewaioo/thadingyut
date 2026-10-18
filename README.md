@@ -70,12 +70,16 @@ PORT=4173 bun run start
 
 `server.ts` က static UI၊ `/api/config`၊ `/api/supabase?__route=…` နဲ့ `/healthz` ကို serve လုပ်ပါတယ်။ Systemd template ကိုသုံးမယ်ဆို project ကို `/opt/thadingyut-wishes` မှာထားပြီး `.env` ကို app user ဖတ်နိုင်အောင် သတ်မှတ်ပါ။ လက်ရှိ Telegram bot စတာတွေကို ပြင်ဆင်ရန်မလိုပါ။ Public deployment မှာ HTTPS သုံးပါ။
 
+## လက်ရှိ default သတ်မှတ်ချက်
+
+Cloud startup/save timeout က ၈ စက္ကန့်ဖြစ်ပြီး ကောင်းကင်ပေါ်မှာ အစပြု default ဆုတောင်းမီးပုံး ၆၀ ဖန်တီးပါတယ်။ ကိုယ်တိုင်သိမ်းထားတဲ့ ဆုတောင်းများကို မဖျက်ပါ။
+
 ## Data နဲ့ လုံခြုံရေး
 
 - ရှိပြီးသား anonymous session ရဲ့ storage key ကို ဆက်သုံးထားလို့ same browser + same app domain မှာ အရင် owner identity ဆက်ထိန်းနိုင်ပါတယ်။ Browser storage ဖျက်ခြင်း၊ domain/browser/device ပြောင်းခြင်းမှာ anonymous identity ဆုံးရှုံးနိုင်ပါတယ်။
 - Supabase row-level security ကို မပိတ်ထားပါ။ Proxy က user ရဲ့ bearer token ကိုပဲပို့ပြီး server admin key မသုံးပါ။
 - Proxy ကို app အတွက်လိုတဲ့ auth routes နဲ့ `thadingyut_profiles` table အတွက်သာ ကန့်သတ်ထားပါတယ်။ အခြား URL ကို fetch လုပ်ပေးတဲ့ open proxy မဟုတ်ပါ။
-- Cloud startup/save တစ်ကြိမ်က ၃ စက္ကန့်ထက်ကြာရင် အရင်ဗားရှင်းအတိုင်း local-only mode ဆင်းပါတယ်။ Vercel cold start သို့မဟုတ် connection နှေးရင်လည်း ဒီလိုဖြစ်နိုင်ပါတယ်။ အဲဒီအချိန်မှာ လက်ရှိ tab က auto retry မလုပ်ပါ။ ပြန်ဖွင့်/reload လုပ်ရင် ပြန်ကြိုးစားပါမယ်။
+- Cloud startup/save တစ်ကြိမ်က ၈ စက္ကန့်ထက်ကြာရင် local-only mode ဆင်းပါတယ်။ Vercel cold start သို့မဟုတ် connection နှေးရင်လည်း ဒီလိုဖြစ်နိုင်ပါတယ်။ အဲဒီအချိန်မှာ လက်ရှိ tab က auto retry မလုပ်ပါ။ ပြန်ဖွင့်/reload လုပ်ရင် ပြန်ကြိုးစားပါမယ်။
 - Local-only မှာ သိမ်းထားတဲ့အရာတွေကို နောက်တစ်ခါ cloud ပြန်ချိတ်တဲ့အခါ အလိုအလျောက် merge လုပ်ပေးမယ်လို့ မအာမခံပါ။ မူရင်း app ရဲ့ cloud-load ဦးစားပေးပုံစံကို ဆက်ထိန်းထားပါတယ်။
 - Anonymous signup ကို လူအများအသုံးပြုမယ်ဆို Supabase auth rate limits နဲ့ Vercel firewall/rate limits ကို ချိန်ပါ။ ဒီ patch က CAPTCHA သို့မဟုတ် persistent per-user rate limiter မထည့်ထားပါ။
 
