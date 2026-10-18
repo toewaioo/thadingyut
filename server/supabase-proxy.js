@@ -122,11 +122,21 @@ export async function handleSupabaseRequest(request, env = process.env, upstream
   }
 
   const method = request.method.toUpperCase();
-  // Bun/custom-fetch callers see the public base URL in Request.url, while
-  // Vercel's catch-all adapter strips it before invoking this handler.
-  const routedPathname = requestUrl.pathname.startsWith('/api/supabase/')
-    ? requestUrl.pathname.slice('/api/supabase'.length)
-    : requestUrl.pathname;
+  // A plain Vite deployment has no Next.js catch-all API routing. All
+  // production SDK calls target the real /api/supabase function instead.
+  let routedPathname;
+  if (requestUrl.pathname === '/api/supabase') {
+    const routes = requestUrl.searchParams.getAll('__route');
+    if (routes.length !== 1 || !routes[0] || routes[0].startsWith('/')) {
+      return jsonResponse(404, { error: 'Route not allowed' });
+    }
+    routedPathname = `/${routes[0]}`;
+    requestUrl.searchParams.delete('__route');
+  } else {
+    routedPathname = requestUrl.pathname.startsWith('/api/supabase/')
+      ? requestUrl.pathname.slice('/api/supabase'.length)
+      : requestUrl.pathname;
+  }
   const routePermission = allowedRoute(routedPathname, method);
   if (!routePermission) return jsonResponse(404, { error: 'Route not allowed' });
   if (routePermission === 'options') {

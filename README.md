@@ -3,11 +3,21 @@
 ဒီဗားရှင်းမှာ browser က `*.supabase.co` ကို တိုက်ရိုက်မခေါ်တော့ပါ။ Anonymous login၊ session refresh နဲ့ profile ဖတ်/သိမ်းခြင်းတို့ကို app ရဲ့ same-origin API ကတစ်ဆင့်ပို့ပါတယ်။ UI နဲ့ local-storage fallback ကို ထိန်းထားပါတယ်။
 
 ```text
-Browser → https://su-taung-mal.vercel.app/api/supabase/…
+Browser → https://su-taung-mal.vercel.app/api/supabase?__route=…
         → Vercel server → Supabase
 ```
 
 ISP က Supabase domain ကိုသာ ပိတ်ထားပြီး app domain ကိုဖွင့်နိုင်ရင် ဒီပုံစံက အထောက်အကူဖြစ်နိုင်ပါတယ်။ App domain ကိုပါပိတ်ထားရင် မဖြေရှင်းနိုင်ပါ။ Server က Supabase ကို ဆက်သွယ်နိုင်ဖို့လည်း လိုပါတယ်။
+
+## ဒီဗားရှင်းမှာ ပြင်ထားသော 404 ပြဿနာ
+
+အရင် ZIP က `api/supabase/[...path].js` ကို Next.js catch-all လို သုံးထားတာ ဒီ Vite deployment မှာ nested URL တွေကို မဖမ်းနိုင်ခဲ့ပါ။ `/api/config` အလုပ်လုပ်ပေမယ့် `/api/supabase/auth/v1/signup` က Vercel `NOT_FOUND` ပြန်တာ ဖြစ်နိုင်ပါတယ်။
+
+အခု `api/supabase.js` ဆိုတဲ့ ပုံမှန် function တစ်ခုကိုပဲ သုံးပါတယ်။ Browser မှာ signup request က `/api/supabase?__route=auth%2Fv1%2Fsignup` ဖြစ်ရပါမယ်။ Rewrite သို့မဟုတ် catch-all routing မလိုတော့ပါ။
+
+အရင် source ကို အစားထိုးပါ။ Git repository မှာပြောင်းရင် `api/supabase/[...path].js` အဟောင်းကိုလည်း ဖျက်ပါ။ Environment variables မပြောင်းထားရင် ပြန်ထည့်ဖို့မလိုပါ။ Deploy ပြီး hard refresh လုပ်ပါ။ Network tab မှာ signup request က အဟောင်း nested URL ဖြစ်နေသေးရင် cached bundle အဟောင်းဖြစ်ပါတယ်။
+
+ဒီပြင်ဆင်ချက်က 404 routing ပြဿနာအတွက်ပါ။ Route ပြင်ပြီးနောက် upstream မှ auth/configuration error ပြန်လာရင် အဲဒီ error ကို သီးခြားစစ်ဖို့လိုပါတယ်။
 
 ## Vercel မှာတင်ရန်
 
@@ -23,7 +33,7 @@ ISP က Supabase domain ကိုသာ ပိတ်ထားပြီး app do
 
 3. Supabase မှာ anonymous sign-in ဖွင့်ထားရပါမယ်။ Table မတည်ဆောက်ရသေးရင် `supabase/migrations/20261015000000_thadingyut_profiles.sql` ကို run ပါ။ ရှိပြီးသား data ဖျက်ဖို့မလိုပါ။
 4. Project ကို deploy/redeploy လုပ်ပါ။ `vercel.json` မှာ Vite build နဲ့ `dist` output သတ်မှတ်ပြီးပါပြီ။ `api/` folder ထဲက server functions တွေကိုပါ deploy လုပ်ရပါမယ်။ `dist/` တစ်ခုတည်းကို static hosting ပေါ်တင်ရုံနဲ့ cloud sync မရပါ။
-5. `https://သင့်-app-domain/api/config` ကိုဖွင့်ရင် public configuration JSON ရသင့်ပါတယ်။ App ကိုဖွင့်ပြီး Network tab မှာ login/data request တွေဟာ app ရဲ့ `/api/supabase/…` ကိုပဲခေါ်ကြောင်း စစ်ပါ။ `Cloud sync active` ဖြစ်ပြီး ဆုတောင်းတစ်ခုသိမ်းကာ reload လုပ်၍ စစ်ပါ။
+5. `https://သင့်-app-domain/api/config` ကိုဖွင့်ရင် public configuration JSON ရသင့်ပါတယ်။ App ကိုဖွင့်ပြီး Network tab မှာ login/data request တွေဟာ app ရဲ့ `/api/supabase?__route=…` ကိုပဲခေါ်ကြောင်း စစ်ပါ။ `Cloud sync active` ဖြစ်ပြီး ဆုတောင်းတစ်ခုသိမ်းကာ reload လုပ်၍ စစ်ပါ။
 
 အရင်က သုံးထားတဲ့ `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` environment variable နာမည်တွေကိုလည်း migration အတွက် server က လက်ခံပါတယ်။ နောက်ပိုင်းမှာ `SUPABASE_*` နာမည်တွေကို သုံးပါ။
 
@@ -58,7 +68,7 @@ bun run build
 PORT=4173 bun run start
 ```
 
-`server.ts` က static UI၊ `/api/config`၊ `/api/supabase/…` နဲ့ `/healthz` ကို serve လုပ်ပါတယ်။ Systemd template ကိုသုံးမယ်ဆို project ကို `/opt/thadingyut-wishes` မှာထားပြီး `.env` ကို app user ဖတ်နိုင်အောင် သတ်မှတ်ပါ။ လက်ရှိ Telegram bot စတာတွေကို ပြင်ဆင်ရန်မလိုပါ။ Public deployment မှာ HTTPS သုံးပါ။
+`server.ts` က static UI၊ `/api/config`၊ `/api/supabase?__route=…` နဲ့ `/healthz` ကို serve လုပ်ပါတယ်။ Systemd template ကိုသုံးမယ်ဆို project ကို `/opt/thadingyut-wishes` မှာထားပြီး `.env` ကို app user ဖတ်နိုင်အောင် သတ်မှတ်ပါ။ လက်ရှိ Telegram bot စတာတွေကို ပြင်ဆင်ရန်မလိုပါ။ Public deployment မှာ HTTPS သုံးပါ။
 
 ## Data နဲ့ လုံခြုံရေး
 
@@ -73,7 +83,7 @@ PORT=4173 bun run start
 
 - `src/App.jsx` — same-origin SDK URL၊ runtime config၊ session key ထိန်းသိမ်းခြင်း
 - `server/supabase-proxy.js` — upstream proxy နဲ့ validation
-- `api/config.js`, `api/supabase/[...path].js` — Vercel server functions
+- `api/config.js`, `api/supabase.js` — Vercel server functions
 - `vite.config.js`, `server.ts` — local/VPS API routing
 - `tests/` — mock upstream ဖြင့် regression tests
 

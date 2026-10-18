@@ -10,7 +10,7 @@ Bun.serve({
   async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === '/api/config') return handleConfigRequest(request, Bun.env);
-    if (url.pathname.startsWith('/api/supabase/')) return handleSupabaseRequest(request, Bun.env);
+    if (url.pathname === '/api/supabase' || url.pathname.startsWith('/api/supabase/')) return handleSupabaseRequest(request, Bun.env);
     if (url.pathname.startsWith('/api/')) return new Response('Not found', { status: 404 });
     if (url.pathname === '/healthz') {
       return new Response('ok\n', { headers: { 'content-type': 'text/plain; charset=utf-8' } });

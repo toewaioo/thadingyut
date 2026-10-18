@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { toCloudProxyInput } from './cloud-route.js';
 import legacyMarkup from './legacy-ui.html?raw';
 import './app.css';
 
@@ -137,7 +138,11 @@ export default function App() {
         else signal.addEventListener('abort', abortRequest, { once: true });
       }
       try {
-        return await fetch(input, { ...init, signal: requestController.signal });
+        const response = await fetch(toCloudProxyInput(input, window.location.origin), { ...init, signal: requestController.signal });
+        if (!response.ok && !(response.headers.get('content-type') || '').includes('json')) {
+          throw new Error(`Cloud API unavailable (HTTP ${response.status}). Check the deployed API functions.`);
+        }
+        return response;
       } finally {
         for (const signal of signals) signal.removeEventListener('abort', abortRequest);
       }

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from '@supabase/supabase-js';
+import { toCloudProxyInput } from '../src/cloud-route.js';
 import { handleSupabaseRequest } from '../server/supabase-proxy.js';
 
 const owner = '11111111-1111-4111-8111-111111111111';
@@ -11,6 +12,7 @@ const env = {
 
 test('real Supabase SDK uses proxy for anonymous signup, table load/save and token refresh', async () => {
   const upstreamCalls = [];
+  const proxyCalls = [];
   const jwt = `eyJhbGciOiJIUzI1NiJ9.${Buffer.from(JSON.stringify({ sub: owner, role: 'authenticated', exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url')}.test`;
   const session = {
     access_token: jwt, refresh_token: 'refresh-test', token_type: 'bearer', expires_in: 3600,
@@ -34,7 +36,15 @@ test('real Supabase SDK uses proxy for anonymous signup, table load/save and tok
   };
   const client = createClient('https://app.example/api/supabase', env.SUPABASE_PUBLISHABLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'sb-civxldsafwtsjzadxiwl-auth-token' },
-    global: { fetch: (input, init) => handleSupabaseRequest(new Request(input, init), env, upstream) },
+    global: { fetch: async (input, init) => {
+      const routedInput = toCloudProxyInput(input, 'https://app.example');
+      const request = new Request(routedInput, init);
+      const url = new URL(request.url);
+      proxyCalls.push({ path: url.pathname, route: url.searchParams.get('__route') });
+      assert.equal(url.pathname, '/api/supabase');
+      assert.ok(url.searchParams.has('__route'));
+      return handleSupabaseRequest(request, env, upstream);
+    } },
   });
   const signup = await client.auth.signInAnonymously();
   assert.equal(signup.error, null);
@@ -49,6 +59,12 @@ test('real Supabase SDK uses proxy for anonymous signup, table load/save and tok
   assert.deepEqual(upstreamCalls.map(({ path, method }) => [path, method]), [
     ['/auth/v1/signup', 'POST'], ['/rest/v1/thadingyut_profiles', 'GET'],
     ['/rest/v1/thadingyut_profiles', 'POST'], ['/auth/v1/token', 'POST'],
+  ]);
+  assert.deepEqual(proxyCalls.map(({ path, route }) => [path, route]), [
+    ['/api/supabase', 'auth/v1/signup'],
+    ['/api/supabase', 'rest/v1/thadingyut_profiles'],
+    ['/api/supabase', 'rest/v1/thadingyut_profiles'],
+    ['/api/supabase', 'auth/v1/token'],
   ]);
   assert.match(upstreamCalls[1].query, /owner_id=eq\./);
 });
