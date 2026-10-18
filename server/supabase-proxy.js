@@ -10,6 +10,7 @@ const ROUTES = new Map([
   ['/auth/v1/user', new Set(['GET', 'PUT'])],
   ['/auth/v1/logout', new Set(['POST'])],
   ['/rest/v1/thadingyut_profiles', new Set(['GET', 'POST'])],
+  ['/rest/v1/thadingyut_public_wishes', new Set(['GET'])],
 ]);
 
 function jsonResponse(status, payload) {
