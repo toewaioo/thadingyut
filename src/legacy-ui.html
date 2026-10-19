@@ -17,12 +17,6 @@
     <button class="tl-btn" id="soundBtn" title="အသံ">🔔</button>
     <button class="tl-btn" id="seasonBtn" title="ရာသီ ပွဲတော်">🌸</button>
     <button class="tl-btn" id="timeBtn" title="အလင်း နှင့် အချိန်">☀️</button>
-    <button class="tl-btn" id="wishesBtn" title="အားလုံး၏ ဆုတောင်းများ">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
-      </svg>
-      <span class="badge" id="wishesBadge" style="display:none">0</span>
-    </button>
     <button class="tl-btn" id="photoBtn" title="ဓာတ်ပုံမုဒ်" aria-label="Photo mode">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h3l2-3h6l2 3h3a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><circle cx="12" cy="13" r="3.5"/></svg>
     </button>
@@ -221,26 +215,5 @@
       <li>ကောင်းမှုကုသိုလ် အလင်းရောင် ပြန့်ပွားစေခြင်း</li>
     </ul></div>
     <div class="blessing">သီတင်းကျွတ် အခါတော်နေ့တွင်<br>မိဘဆရာသမား အားလုံး ကျန်းမာချမ်းသာပါစေ ။</div>
-  </div>
-</div>
-
-<!-- ═══ WISHES LIST ═══ -->
-<div class="modal-backdrop" id="wishesBackdrop">
-  <div class="modal wishlist">
-    <button class="close" id="wishesClose">✕</button>
-    <div class="header">
-      <h2>အားလုံး၏ ဆုတောင်းများ</h2>
-      <p>အားလုံးမြင်နိုင်သော မီးပုံးများ · အသစ်ဆုံးမှ အဟောင်းဆုံးသို့</p>
-    </div>
-    <div class="stats">
-      <div class="stat"><div class="num" id="statTotal">0</div><div class="lbl">စုစုပေါင်း</div></div>
-      <div class="stat"><div class="num" id="statBlessed">0</div><div class="lbl">ကန်တော့ခံရ</div></div>
-      <div class="stat"><div class="num" id="statFlying">0</div><div class="lbl">လွင့်ဆဲ</div></div>
-    </div>
-    <div class="streak-row">
-      <span class="fire">🔥</span>
-      <div class="txt" id="streakText">နေ့စဉ် ဆုတောင်း streak<small>မနက်ဖန်လည်း ပြန်လာခဲ့ပါ</small></div>
-    </div>
-    <div class="items" id="wishesList"></div>
   </div>
 </div>

@@ -10,7 +10,7 @@ const ROUTES = new Map([
   ['/auth/v1/user', new Set(['GET', 'PUT'])],
   ['/auth/v1/logout', new Set(['POST'])],
   ['/rest/v1/thadingyut_profiles', new Set(['GET', 'POST'])],
-  ['/rest/v1/thadingyut_public_wishes', new Set(['GET'])],
+  ['/rest/v1/thadingyut_sky_wishes', new Set(['GET'])],
 ]);
 
 function jsonResponse(status, payload) {
@@ -142,6 +142,27 @@ export async function handleSupabaseRequest(request, env = process.env, upstream
   if (!routePermission) return jsonResponse(404, { error: 'Route not allowed' });
   if (routePermission === 'options') {
     return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
+  }
+
+  // The public sky path exposes a fixed projection and cursor pagination only.
+  if (routedPathname === '/rest/v1/thadingyut_sky_wishes') {
+    const allowedParams = new Set(['select', 'order', 'limit', 'id']);
+    for (const key of requestUrl.searchParams.keys()) {
+      if (!allowedParams.has(key) || requestUrl.searchParams.getAll(key).length !== 1) {
+        return jsonResponse(400, { error: 'Invalid sky query' });
+      }
+    }
+    const select = requestUrl.searchParams.get('select') ?? 'id,wish';
+    const order = requestUrl.searchParams.get('order') ?? 'id.asc';
+    const limit = requestUrl.searchParams.get('limit') ?? '500';
+    const cursor = requestUrl.searchParams.get('id');
+    if (select !== 'id,wish' || order !== 'id.asc' || !/^[1-9]\d{0,2}$/.test(limit) || Number(limit) > 500 ||
+        (cursor !== null && !/^gt\.[a-f0-9]{32}$/.test(cursor))) {
+      return jsonResponse(400, { error: 'Invalid sky query' });
+    }
+    requestUrl.searchParams.set('select', select);
+    requestUrl.searchParams.set('order', order);
+    requestUrl.searchParams.set('limit', limit);
   }
 
   const { config, error } = configOrError(env);

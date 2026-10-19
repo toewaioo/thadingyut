@@ -59,14 +59,21 @@ export default function App() {
     let cloudActive = false;
     let usingLocalFallback = false;
     const cloudAbortController = new AbortController();
+    let resolveInitialSky;
+    const initialSkyReady = new Promise(resolve => { resolveInitialSky = resolve; });
+    let initialSkyTimer = window.setTimeout(() => resolveInitialSky(), CLOUD_REQUEST_TIMEOUT_MS);
     const stopCommunityFeed = startCommunityFeed({
       onWishes: (wishes) => {
         if (disposed) return;
         window.__thadingyutCommunityWishes = wishes;
+        window.clearTimeout(initialSkyTimer);
+        resolveInitialSky();
         window.dispatchEvent(new CustomEvent('thadingyut:community-wishes', { detail: wishes }));
         setCommunityStatus(`အများဆုတောင်း ${wishes.length} ခု`);
       },
       onError: () => {
+        window.clearTimeout(initialSkyTimer);
+        resolveInitialSky();
         if (!disposed) setCommunityStatus('အများဆုတောင်း ချိတ်ဆက်မှု ပြန်ကြိုးစားနေသည်…');
       },
     });
@@ -238,6 +245,7 @@ export default function App() {
         useLocalMode(error);
       }
 
+      await initialSkyReady;
       if (!disposed) await startScene();
     };
 
@@ -246,6 +254,8 @@ export default function App() {
       disposed = true;
       cloudActive = false;
       stopCommunityFeed();
+      window.clearTimeout(initialSkyTimer);
+      resolveInitialSky();
       window.clearTimeout(syncTimer);
       if (listener) window.removeEventListener('thadingyut:data-change', listener);
       if (!cloudAbortController.signal.aborted) cloudAbortController.abort();

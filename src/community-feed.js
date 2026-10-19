@@ -9,7 +9,7 @@ export async function loadCommunityWishes(fetcher, key, signal) {
       select: 'id,wish', order: 'id.asc', limit: String(COMMUNITY_PAGE_SIZE),
     });
     if (cursor) query.set('id', `gt.${cursor}`);
-    const response = await fetcher(`/api/supabase?__route=rest/v1/thadingyut_public_wishes&${query}`, {
+    const response = await fetcher(`/api/supabase?__route=rest/v1/thadingyut_sky_wishes&${query}`, {
       headers: { apikey: key, Authorization: `Bearer ${key}` },
       cache: 'no-store', signal,
     });

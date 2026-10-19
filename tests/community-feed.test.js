@@ -10,7 +10,7 @@ test('public feed loads ALL pages, uses cursor and anon key, sorts by wish time'
     assert.equal(options.headers.apikey, 'anon-key');
     assert.equal(options.cache, 'no-store');
     const url = new URL(path, 'https://app.test');
-    assert.equal(url.searchParams.get('__route'), 'rest/v1/thadingyut_public_wishes');
+    assert.equal(url.searchParams.get('__route'), 'rest/v1/thadingyut_sky_wishes');
     assert.equal(url.searchParams.get('select'), 'id,wish');
     assert.equal(url.searchParams.get('limit'), String(COMMUNITY_PAGE_SIZE));
     const rows = calls.length === 1
@@ -34,16 +34,16 @@ test('public feed rejects failed or invalid responses rather than erasing last f
 test('public route allows GET only, strips routing param before forwarding', async () => {
   const env = { SUPABASE_PUBLISHABLE_KEY: 'public-key' };
   let url;
-  const response = await handleSupabaseRequest(new Request('https://app.test/api/supabase?__route=rest/v1/thadingyut_public_wishes&select=id,wish&limit=500'), env, async (input) => {
+  const response = await handleSupabaseRequest(new Request('https://app.test/api/supabase?__route=rest/v1/thadingyut_sky_wishes&select=id,wish&limit=500'), env, async (input) => {
     url = input;
     return new Response('[]', { headers: { 'content-type': 'application/json' } });
   });
   assert.equal(response.status, 200);
-  assert.equal(new URL(url).pathname, '/rest/v1/thadingyut_public_wishes');
+  assert.equal(new URL(url).pathname, '/rest/v1/thadingyut_sky_wishes');
   assert.equal(new URL(url).searchParams.get('select'), 'id,wish');
   assert.equal(new URL(url).searchParams.has('__route'), false);
   for (const method of ['POST', 'PATCH', 'DELETE']) {
-    const denied = await handleSupabaseRequest(new Request('https://app.test/api/supabase?__route=rest/v1/thadingyut_public_wishes', { method }), env, async () => assert.fail('must not forward'));
+    const denied = await handleSupabaseRequest(new Request('https://app.test/api/supabase?__route=rest/v1/thadingyut_sky_wishes', { method }), env, async () => assert.fail('must not forward'));
     assert.equal(denied.status, 404);
   }
 });
