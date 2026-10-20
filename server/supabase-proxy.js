@@ -1,4 +1,5 @@
 import { Readable } from 'node:stream';
+import { SUITABILITY_MESSAGE } from '../src/wish-suitability.js';
 
 const DEFAULT_SUPABASE_URL = 'https://civxldsafwtsjzadxiwl.supabase.co';
 const MAX_BODY_BYTES = 256 * 1024;
@@ -11,6 +12,8 @@ const ROUTES = new Map([
   ['/auth/v1/logout', new Set(['POST'])],
   ['/rest/v1/thadingyut_profiles', new Set(['GET', 'POST'])],
   ['/rest/v1/thadingyut_sky_wishes', new Set(['GET'])],
+  ['/rest/v1/rpc/thadingyut_submit_wish_report', new Set(['POST'])],
+  ['/rest/v1/rpc/thadingyut_own_wish_visibility', new Set(['POST'])],
 ]);
 
 function jsonResponse(status, payload) {
@@ -111,6 +114,34 @@ function limitedBody(body, onLimit) {
   }));
 }
 
+async function isWishSuitabilityRejection(response) {
+  if (!response.body) return false;
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    while (size < 8192) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const part = value.subarray(0, 8192 - size);
+      chunks.push(part);
+      size += part.byteLength;
+      if (part.byteLength !== value.byteLength) break;
+    }
+  } catch {
+    return false;
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  try {
+    const body = JSON.parse(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString('utf8'));
+    return [body?.code, body?.message].some((value) =>
+      typeof value === 'string' && /(?:^|[^A-Z0-9_])WISH_UNSUITABLE(?:$|[^A-Z0-9_])/i.test(value));
+  } catch {
+    return false;
+  }
+}
+
 export async function handleSupabaseRequest(request, env = process.env, upstreamFetch = fetch) {
   let requestUrl;
   try {
@@ -142,6 +173,10 @@ export async function handleSupabaseRequest(request, env = process.env, upstream
   if (!routePermission) return jsonResponse(404, { error: 'Route not allowed' });
   if (routePermission === 'options') {
     return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (routedPathname.startsWith('/rest/v1/rpc/') && requestUrl.search) {
+    return jsonResponse(400, { error: 'Invalid report query' });
   }
 
   // The public sky path exposes a fixed projection and cursor pagination only.
@@ -209,6 +244,14 @@ export async function handleSupabaseRequest(request, env = process.env, upstream
   try {
     const upstream = await upstreamFetch(upstreamUrl, init);
     if (!upstream.ok) {
+      if (routedPathname === '/rest/v1/thadingyut_profiles' && method === 'POST' &&
+          await isWishSuitabilityRejection(upstream)) {
+        return jsonResponse(422, {
+          allowed: false,
+          code: 'WISH_UNSUITABLE',
+          message: SUITABILITY_MESSAGE,
+        });
+      }
       const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
       return jsonResponse(status, { error: 'Supabase request failed' });
     }

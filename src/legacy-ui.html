@@ -66,7 +66,7 @@
     <div class="sub">Time & Lighting</div>
 
     <div class="time-display">
-      <div class="big-time" id="bigTime">18:30</div>
+      <div class="big-time" id="bigTime">--:--</div>
       <div class="time-label" id="timeLabel">ညနေ</div>
       <div class="time-phase" id="timePhase">☀️ နေ့</div>
     </div>
@@ -75,7 +75,7 @@
       <button class="mode-btn active" data-mode="auto">
         <span class="mode-emoji">🕐</span>
         <span class="mode-name">အလို</span>
-        <span class="mode-sub">System Time</span>
+        <span class="mode-sub">Browser Local Time</span>
       </button>
       <button class="mode-btn" data-mode="manual">
         <span class="mode-emoji">✋</span>
@@ -96,7 +96,7 @@
     </div>
 
     <div class="time-hint" id="timeHint">
-      အလိုမုဒ်တွင် ဖုန်း/ကွန်ပျူတာ၏ အချိန်အလိုက် နေ/လ ရွေ့လျားပါမည်။
+      အလိုမုဒ်တွင် browser ၏ ဒေသစံတော်ချိန်အလိုက် နေ/လ ရွေ့လျားပါမည်။
     </div>
   </div>
 </div>
@@ -109,7 +109,8 @@
     <div class="modal-sub">Write your wish</div>
     <div class="modal-sub" role="note">သင်ရေးသော ဆုတောင်းကို အားလုံးမြင်နိုင်ပါသည်။</div>
 
-    <textarea id="wish" maxlength="80" placeholder="သင့်ဆုတောင်းစာကို ဒီနေရာမှာ ရေးပါ..."></textarea>
+    <textarea id="wish" maxlength="80" aria-describedby="wishSuitabilityError" placeholder="သင့်ဆုတောင်းစာကို ဒီနေရာမှာ ရေးပါ..."></textarea>
+    <p id="wishSuitabilityError" class="wish-suitability-error" role="alert" hidden></p>
     <div class="row-meta">
       <span class="count" id="charCount">0 / 80</span>
       <span style="opacity:.7">Enter ↵ ဖြင့် လွှတ်နိုင်သည်</span>
@@ -145,7 +146,7 @@
     </div>
     <div class="sect">
       <span class="sect-label">မိဘ/ဆရာ ပူဇော် (မဖြစ်မနေ မဟုတ်)</span>
-      <input class="dedicate-input" id="dedicateInput" maxlength="20" placeholder="နာမည် ထည့်ပါ...">
+      <input class="dedicate-input" id="dedicateInput" maxlength="20" aria-describedby="wishSuitabilityError" placeholder="နာမည် ထည့်ပါ...">
     </div>
     <button class="launch-submit" id="launchBtn">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -173,6 +174,30 @@
     </div>
     <div class="lantern-style" id="cardLanternStyle">Classic · အလတ်</div>
     <div class="kicker">ဆုတောင်းစာ</div>
+    <div class="wish-report-controls">
+      <button type="button" class="action-btn report-wish-button" id="cardReport" disabled aria-controls="wishReportForm" aria-expanded="false">တိုင်ကြားရန် (Report)</button>
+      <form id="wishReportForm" class="wish-report-form" hidden>
+        <label for="wishReportReason">တိုင်ကြားသည့် အကြောင်းရင်း</label>
+        <select id="wishReportReason" required>
+          <option value="" disabled selected>အကြောင်းရင်း ရွေးပါ</option>
+          <option value="spam">ကြော်ငြာ / စပမ်း</option>
+          <option value="harassment">နှောင့်ယှက်မှု / အနိုင်ကျင့်မှု</option>
+          <option value="hate">အမုန်းစကား</option>
+          <option value="sexual">လိင်ပိုင်းဆိုင်ရာ မသင့်လျော်မှု</option>
+          <option value="violence">အကြမ်းဖက်မှု / ခြိမ်းခြောက်မှု</option>
+          <option value="personal_info">ကိုယ်ရေးအချက်အလက် ဖော်ပြမှု</option>
+          <option value="other">အခြား</option>
+        </select>
+        <label for="wishReportDetails">အသေးစိတ် (မဖြစ်မနေ မလိုပါ)</label>
+        <textarea id="wishReportDetails" maxlength="1000" rows="3" placeholder="ကိုယ်ရေးအချက်အလက်များ မထည့်ပါနှင့်။"></textarea>
+        <p class="report-note">မတူညီသော အသုံးပြုသူ ၃ ဦး တိုင်ကြားပါက ဆုတောင်းကို စိစစ်ရန် ယာယီဖျောက်ထားပါမည်။ ဆုတောင်းမှတ်တမ်းကို မဖျက်ပါ။</p>
+        <div class="report-actions">
+          <button type="submit" class="action-btn" id="wishReportSend">တိုင်ကြားချက် ပေးပို့မည်</button>
+          <button type="button" class="action-btn" id="wishReportCancel">မလုပ်တော့ပါ</button>
+        </div>
+      </form>
+      <p id="wishReportStatus" class="report-note" role="status" aria-live="polite"></p>
+    </div>
     <div class="wish-text" id="cardText"></div>
     <div class="dedicate-line" id="cardDedicate" style="display:none"></div>
     <div class="meta-row">
@@ -193,6 +218,7 @@
         မျှဝေ
       </button>
     </div>
+
   </div>
 </div>
 

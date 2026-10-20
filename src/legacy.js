@@ -4,8 +4,11 @@ import { EffectComposer }   from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass }       from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass }  from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass }       from 'three/addons/postprocessing/OutputPass.js';
-import { planSkyLanterns, DEFAULT_WISH_COUNT, MAX_LANTERNS } from './sky-policy.js';
-
+import { planSkyLanterns, localKey, DEFAULT_WISH_COUNT, MAX_LANTERNS } from './sky-policy.js';
+import { legacyWishKey } from './own-wish-visibility.js';
+import { requestWishApproval } from './wish-preflight.js';
+import { createLanternArrivalPlanner, consumeLanternReleaseDelay } from './lantern-arrival.js';
+import { createSkyClockState, getSkyHours, getBrowserTimeZone } from './sky-clock.js';
 /* ═══════════════════════════════════════════
    ENVIRONMENT (time & day/night)
    ═══════════════════════════════════════════ */
@@ -13,23 +16,19 @@ function announceCloudChange(){
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('thadingyut:data-change'));
 }
 
-const environment = {
-  mode: 'auto',
-  manualTime: 18
-};
+// Every fresh scene follows this browser's current local clock. Saved manual
+// settings are retained only as a preview value, never as a forced sky time.
+let savedEnvironment;
 try {
   const s = localStorage.getItem('thadingyut_env_v1');
-  if (s) Object.assign(environment, JSON.parse(s));
+  if (s) savedEnvironment = JSON.parse(s);
 } catch(e){}
+const environment = createSkyClockState(savedEnvironment);
 function saveEnv(){
   try { localStorage.setItem('thadingyut_env_v1', JSON.stringify(environment)); announceCloudChange(); } catch(e){}
 }
 function getHours(){
-  if (environment.mode === 'auto'){
-    const n = new Date();
-    return n.getHours() + n.getMinutes()/60 + n.getSeconds()/3600;
-  }
-  return environment.manualTime;
+  return getSkyHours(environment);
 }
 function smoothstep(a, b, x){
   const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
@@ -1098,6 +1097,15 @@ try {
 let communityWishes = Array.isArray(window.__thadingyutCommunityWishes)
   ? window.__thadingyutCommunityWishes.filter(wish => wish && typeof wish.text === 'string')
   : [];
+let hiddenLocalSourceIds = Array.isArray(window.__thadingyutHiddenLocalSourceIds)
+  ? window.__thadingyutHiddenLocalSourceIds.map(String) : [];
+let hiddenLocalWishKeys = Array.isArray(window.__thadingyutHiddenLocalWishKeys)
+  ? window.__thadingyutHiddenLocalWishKeys : [];
+window.addEventListener('thadingyut:own-wish-visibility', event => {
+  hiddenLocalSourceIds = Array.isArray(event.detail?.sourceIds) ? event.detail.sourceIds.map(String) : [];
+  hiddenLocalWishKeys = Array.isArray(event.detail?.legacyWishKeys) ? event.detail.legacyWishKeys : [];
+  syncCommunityWishes();
+});
 function wishTimeValue(value){
   const numeric = Number(value);
   if (Number.isFinite(numeric) && numeric > 0) return numeric;
@@ -1472,7 +1480,7 @@ let nextLanternPhysicsId = 1;
 const lanternsByPhysicsId = new Map();
 function getLanternPhysicsState(lantern){
   return {
-    id:lantern.physicsId, age:lantern.age,
+    id:lantern.physicsId, age:lantern.age, releaseDelay:lantern.releaseDelay,
     x:lantern.group.position.x, y:lantern.group.position.y, z:lantern.group.position.z,
     baseX:lantern.baseX, baseZ:lantern.baseZ, maxSpeed:lantern.maxSpeed,
     swayAmp:lantern.swayAmp, swayFreq:lantern.swayFreq, phase:lantern.phase,
@@ -1503,7 +1511,7 @@ function initLanternPhysicsWorker(){
       if (message.type!=='frame')return;
       lanternPhysicsWorkerBusy=false;
       const states=new Float32Array(message.buffer);
-      for(let i=0;i+10<states.length;i+=11){
+      for(let i=0;i+11<states.length;i+=12){
         const lantern=lanternsByPhysicsId.get(states[i]|0);
         if(!lantern)continue;
         lantern.age=states[i+1];
@@ -1512,6 +1520,7 @@ function initLanternPhysicsWorker(){
         lantern.group.rotation.z=states[i+6];
         lantern.group.scale.setScalar(states[i+7]);
         lantern.baseX=states[i+8]; lantern.baseZ=states[i+9]; lantern.phase=states[i+10];
+        lantern.releaseDelay=states[i+11];
       }
     };
     lanternPhysicsWorker.onerror=(event)=>stopLanternPhysicsWorker(event.message||event);
@@ -1614,6 +1623,7 @@ function spawnLantern(wish, opts = {}){
     dedication: opts.dedication || '', blessings: 0, brightness,
     baseX: pos.x, baseZ: pos.z,
     age: opts.age || 0,
+    releaseDelay: Math.max(0, Number(opts.releaseDelay) || 0),
     maxSpeed: opts.maxSpeed || (2.4 + Math.random()*1.8),
     swayAmp: 1.6 + Math.random()*2.4, swayFreq: 0.32 + Math.random()*0.38,
     phase: Math.random()*Math.PI*2,
@@ -1626,6 +1636,8 @@ function spawnLantern(wish, opts = {}){
     createdAt: Date.now()
   };
   lantern.group.scale.setScalar(lantern.baseScale * (opts.age ? 1 : 0.05));
+  group.visible = lantern.releaseDelay <= 0;
+  smokeTrail.points.visible = group.visible;
   group.userData.lantern = lantern;
   scene.add(group);
   lanterns.push(lantern);
@@ -1963,7 +1975,7 @@ function updateFireworks(dt){
   }
 }
 
-function spawnPolicyWish(wish, index){
+function spawnPolicyWish(wish, index, arrival){
   const lantern = spawnLantern(wish.text, {
     isUser: !wish._isCommunity,
     isCommunity: wish._isCommunity,
@@ -1971,21 +1983,21 @@ function spawnPolicyWish(wish, index){
     hue: wish.hue,
     shape: wish.shape,
     dedication: wish.dedication,
-    position: getRestoredWishPosition(wish, index),
-    startY: 42 + (index % 4) * 7,
-    age: 4 + (index % 3) * 2,
-    maxSpeed: 6.8,
+    ...arrival,
     baseScale: prefs.size
   });
   lantern.blessings = Number(wish.blessings) || 0;
   lantern.wishId = (wish._isCommunity ? wish.source_id : wish.id) || null;
   lantern.at = wishTimeValue(wish.at) || Date.now();
+  lantern.archiveWishId = wish._isCommunity ? wish.id : null;
   if (wish._isCommunity) lantern.communityWishId = String(wish.source_id ?? wish.id ?? wish._skyKey);
   return lantern;
 }
 
 function reconcileSkyWishes(){
-  const plan = planSkyLanterns({ databaseWishes: communityWishes, localWishes: userWishes });
+  const plan = planSkyLanterns({ databaseWishes: communityWishes, localWishes: userWishes, hiddenLocalSourceIds, hiddenLocalWishKeys });
+  const hiddenLegacySkyKeys = new Set(userWishes.filter(wish =>
+    hiddenLocalWishKeys.includes(legacyWishKey(wish))).map(localKey));
   const desired = new Map(plan.wishes.map(wish => [wish._skyKey, wish]));
   const existingByKey = new Map();
 
@@ -1998,10 +2010,21 @@ function reconcileSkyWishes(){
       existingByKey.set(lantern.skyKey, lantern);
       continue;
     }
-    // Never detach the lantern while the camera is actively following it; the
-    // next complete poll can remove it once follow has safely finished.
-    if (cameraFollow?.lantern === lantern) continue;
-    if (lantern.skyKey || plan.databaseOnly){
+    const hiddenLocal = !lantern.isCommunity && (hiddenLocalSourceIds.includes(String(lantern.wishId)) ||
+      hiddenLegacySkyKeys.has(lantern.skyKey));
+    if (cameraFollow?.lantern === lantern){
+      if (!lantern.isCommunity && !hiddenLocal) continue;
+      // A moderated/missing community wish must not stay visible via camera follow.
+      cameraFollow.onComplete = null;
+      finishCameraFollow();
+    }
+    if (lantern.skyKey || plan.databaseOnly || hiddenLocal){
+      if (currentLantern === lantern){
+        closeCard();
+        currentLantern = null;
+        currentUserWishRef = null;
+        window.dispatchEvent(new CustomEvent('thadingyut:wish-card', { detail: { wishId: null } }));
+      }
       lanterns.splice(index, 1);
       disposeLantern(lantern);
     }
@@ -2015,21 +2038,23 @@ function reconcileSkyWishes(){
     disposeLantern(lantern);
     ambientNow--;
   }
+  const arrivalPlanner = createLanternArrivalPlanner();
   while (ambientNow < plan.ambientCount){
     const wish = AMBIENT_WISHES[Math.floor(Math.random()*AMBIENT_WISHES.length)];
-    const pos = randomSkyPosition();
-    spawnLantern(wish, { isAmbient:true, position:pos, startY:8 + Math.random()*220, age:6 + Math.random()*45 });
+    const arrival = nextSkyArrival(arrivalPlanner, { ambient:true });
+    spawnLantern(wish, { isAmbient:true, ...arrival });
     ambientNow++;
   }
 
   // Existing keys remain the same Three.js objects across polls; new feed rows
   // alone allocate lantern resources. No permanent seen-ID set can block a refill.
   const toSpawn = plan.wishes.filter(wish => !existingByKey.has(wish._skyKey)).slice().reverse();
-  toSpawn.forEach((wish, index) => spawnPolicyWish(wish, index));
+  toSpawn.forEach((wish, index) => spawnPolicyWish(wish, index, nextSkyArrival(arrivalPlanner, { wishKey:wish._skyKey })));
   for (const [key, lantern] of existingByKey){
     const wish = desired.get(key);
     if (wish?._isCommunity){
       lantern.isCommunity = true;
+      lantern.archiveWishId = wish.id;
       lantern.communityWishId = String(wish.source_id ?? wish.id ?? key);
     }
   }
@@ -2038,14 +2063,23 @@ function reconcileSkyWishes(){
 
 // Initial composition is based on the complete feed already available before
 // scene startup: >60 database wishes means no ambient/demo lanterns at all.
+function nextSkyArrival(planner, options){
+  // Display positions only: saved launch positions and wish JSON are untouched.
+  return planner.next({ ...options, occupied:lanterns.map(lantern => ({
+    x:lantern.group.position.x, y:lantern.group.position.y, z:lantern.group.position.z
+  })) });
+}
 function initializeSky(){
-  const plan = planSkyLanterns({ databaseWishes: communityWishes, localWishes: userWishes });
+  const plan = planSkyLanterns({ databaseWishes: communityWishes, localWishes: userWishes, hiddenLocalSourceIds, hiddenLocalWishKeys });
+  const arrivalPlanner = createLanternArrivalPlanner();
+  // Real wishes start arriving first, rather than waiting behind 60 demo slots.
+  plan.wishes.slice().reverse().forEach((wish, index) =>
+    spawnPolicyWish(wish, index, nextSkyArrival(arrivalPlanner, { wishKey:wish._skyKey })));
   for (let i=0; i<plan.ambientCount; i++){
     const wish = AMBIENT_WISHES[Math.floor(Math.random()*AMBIENT_WISHES.length)];
-    const pos = randomSkyPosition();
-    spawnLantern(wish, { isAmbient:true, position:pos, startY:8 + Math.random()*220, age:6 + Math.random()*45 });
+    const arrival = nextSkyArrival(arrivalPlanner, { ambient:true });
+    spawnLantern(wish, { isAmbient:true, ...arrival });
   }
-  plan.wishes.slice().reverse().forEach((wish, index) => spawnPolicyWish(wish, index));
 }
 initializeSky();
 
@@ -2186,7 +2220,7 @@ document.querySelectorAll('.mode-btn').forEach(b => {
     saveEnv();
     if (environment.mode === 'auto'){
       sliderWrap.classList.add('hidden');
-      timeHint.textContent = 'အလိုမုဒ်တွင် ဖုန်း/ကွန်ပျူတာ၏ အချိန်အလိုက် နေ/လ ရွေ့လျားပါမည်။';
+      timeHint.textContent = 'အလိုမုဒ်တွင် browser ၏ ဒေသစံတော်ချိန်အလိုက် နေ/လ ရွေ့လျားပါမည်။';
     } else {
       sliderWrap.classList.remove('hidden');
       timeHint.textContent = 'slider ကို ဆွဲပြီး နေ/လ အနေအထား ရွေးချယ်ကြည့်ပါ။';
@@ -2205,8 +2239,11 @@ timeSlider.addEventListener('input', () => {
 
 function updateTimeUI(){
   const h = getHours();
+  if (environment.mode === 'auto'){
+    timeHint.textContent = `Browser local time · ${getBrowserTimeZone()} — ဒေသစံတော်ချိန်အလိုက် နေ/လနှင့် နေ့ညမြင်ကွင်း ပြောင်းလဲပါမည်။`;
+  }
   const hh = Math.floor(h);
-  const mm = Math.floor((h - hh) * 60);
+  const mm = Math.min(59, Math.floor((h - hh) * 60 + 1e-8));
   bigTime.textContent = `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
 
   let label, phaseText, phaseClass, icon;
@@ -2280,13 +2317,21 @@ const offerLampFab = document.getElementById('offerLampFab');
 const wishInput = document.getElementById('wish');
 const launchBtn = document.getElementById('launchBtn');
 const charCount = document.getElementById('charCount');
+const suitabilityError = document.getElementById('wishSuitabilityError');
+let wishCheckPending = false;
+let composeRevision = 0;
+function showWishError(message = '') {
+  suitabilityError.textContent = message;
+  suitabilityError.hidden = !message;
+  wishInput.setAttribute('aria-invalid', message ? 'true' : 'false');
+}
 
 function openCompose(){
   if (cameraFollow) return;
   composeBackdrop.classList.add('show');
   setTimeout(() => wishInput.focus(), 350);
 }
-function closeCompose(){ composeBackdrop.classList.remove('show'); }
+function closeCompose(){ composeRevision++; composeBackdrop.classList.remove('show'); }
 launchFab.addEventListener('click', openCompose);
 offerLampFab.addEventListener('click', offerOilLamp);
 composeClose.addEventListener('click', closeCompose);
@@ -2350,11 +2395,13 @@ document.querySelectorAll('#fontChips .opt-chip').forEach(b => {
 const dedicateInput = document.getElementById('dedicateInput');
 dedicateInput.value = prefs.dedicate || '';
 dedicateInput.addEventListener('input', () => {
+  showWishError();
   prefs.dedicate = dedicateInput.value.trim();
   savePrefs();
 });
 /* char count */
 wishInput.addEventListener('input', () => {
+  showWishError();
   const len = Array.from(wishInput.value).length;
   charCount.textContent = `${len} / 80`;
   charCount.classList.toggle('warn', len > 68);
@@ -2363,45 +2410,69 @@ wishInput.addEventListener('input', () => {
 if (prefs.font) document.body.classList.add(prefs.font);
 
 /* LAUNCH */
-function launchWish(){
-  if (cameraFollow) return;
+async function launchWish(){
+  if (cameraFollow || wishCheckPending) return;
   const text = wishInput.value.trim();
   if (!text){
     wishInput.focus();
     showToast('ဆုတောင်းစာ အရင်ရေးပါ ခင်ဗျာ ✍️');
     return;
   }
-  const pos = getUserLaunchPosition();
-  const l = spawnLantern(text, {
-    isUser: true, hue: prefs.color, shape: prefs.shape,
-    dedication: prefs.dedicate,
-    position: { x: pos.x, z: pos.z }, startY: 2.0, age: 0, maxSpeed: 6.8,
-    baseScale: prefs.size
-  });
-  l.swayAmp = 3.0; l.swayFreq = 0.4;
-  l.label.position.y = -3.6;
-  l.brightness = Math.min(1, 0.55 + text.length * 0.005);
-  const savedWish = {
-    id: 'w_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
-    text, hue: prefs.color, shape: prefs.shape, dedication: prefs.dedicate,
-    position: { x: pos.x, z: pos.z },
-    blessings: 0, at: Date.now()
-  };
-  l.wishId = savedWish.id;
-  l.skyKey = `id:${String(savedWish.id)}`;
-  userWishes.push(savedWish);
-  saveWishes();
-  wishInput.value = ''; charCount.textContent = '0 / 80'; charCount.classList.remove('warn');
-  wishInput.blur(); closeCompose();
-  showToast('သင့်ဆုတောင်း ကောင်းကင်ပေါ် ရောက်သွားပါပြီ 🏮');
-  const st = updateStreak();
-  if (st.count > 1) setTimeout(() => showToast(`🔥 နေ့စဉ် streak ${st.count} ရက်`), 1800);
-  if (soundEnabled){
-    initAudio();
-    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-    playBell(240, 3.2, 0.11);
+  const settings = { ...prefs, dedicate: String(prefs.dedicate || '').trim() };
+  const revision = composeRevision;
+  wishCheckPending = true;
+  launchBtn.disabled = true;
+  launchBtn.setAttribute('aria-busy', 'true');
+  wishInput.readOnly = true;
+  dedicateInput.readOnly = true;
+  showWishError();
+  try {
+    const approval = await requestWishApproval(text, settings.dedicate);
+    if (cameraFollow || revision !== composeRevision || !composeBackdrop.classList.contains('show')) return;
+    if (!approval.allowed) {
+      showWishError(approval.message);
+      showToast(approval.message);
+      wishInput.focus();
+      return;
+    }
+    const pos = getUserLaunchPosition();
+    const l = spawnLantern(text, {
+      isUser: true, hue: settings.color, shape: settings.shape,
+      dedication: settings.dedicate,
+      position: { x: pos.x, z: pos.z }, startY: 2.0, age: 0, maxSpeed: 6.8,
+      baseScale: settings.size
+    });
+    l.swayAmp = 3.0; l.swayFreq = 0.4;
+    l.label.position.y = -3.6;
+    l.brightness = Math.min(1, 0.55 + text.length * 0.005);
+    const savedWish = {
+      id: 'w_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+      text, hue: settings.color, shape: settings.shape, dedication: settings.dedicate,
+      position: { x: pos.x, z: pos.z },
+      blessings: 0, at: Date.now()
+    };
+    l.wishId = savedWish.id;
+    l.skyKey = `id:${String(savedWish.id)}`;
+    userWishes.push(savedWish);
+    saveWishes();
+    wishInput.value = ''; charCount.textContent = '0 / 80'; charCount.classList.remove('warn');
+    wishInput.blur(); closeCompose();
+    showToast('သင့်ဆုတောင်း ကောင်းကင်ပေါ် ရောက်သွားပါပြီ 🏮');
+    const st = updateStreak();
+    if (st.count > 1) setTimeout(() => showToast(`🔥 နေ့စဉ် streak ${st.count} ရက်`), 1800);
+    if (soundEnabled){
+      initAudio();
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+      playBell(240, 3.2, 0.11);
+    }
+    startCameraFollow(l,{onComplete:scheduleLanternFireworks});
+  } finally {
+    wishCheckPending = false;
+    launchBtn.disabled = Boolean(cameraFollow);
+    launchBtn.removeAttribute('aria-busy');
+    wishInput.readOnly = false;
+    dedicateInput.readOnly = false;
   }
-  startCameraFollow(l,{onComplete:scheduleLanternFireworks});
 }
 launchBtn.addEventListener('click', launchWish);
 wishInput.addEventListener('keydown', (e) => {
@@ -2439,7 +2510,7 @@ canvas.addEventListener('pointerup', (e) => {
   pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
   pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
-  const hits = raycaster.intersectObjects(lanterns.map(l => l.hit), false);
+  const hits = raycaster.intersectObjects(lanterns.filter(l => l.group.visible).map(l => l.hit), false);
   if (hits.length === 0) return;
   const lantern = hits[0].object.parent.userData.lantern;
   if (lantern) openCard(lantern);
@@ -2454,6 +2525,7 @@ function findUserWishRef(lantern){
 function openCard(lantern){
   currentLantern = lantern;
   currentUserWishRef = findUserWishRef(lantern);
+  window.dispatchEvent(new CustomEvent('thadingyut:wish-card', { detail: { wishId: lantern.archiveWishId || null, kind: lantern.archiveWishId ? 'database' : lantern.isUser ? 'local' : 'sample' } }));
   cardText.textContent = lantern.wish || 'ဆုတောင်းစာ မရှိပါ';
   const shape = ['classic','cylinder','lotus'].includes(lantern.shape) ? lantern.shape : 'classic';
   const scale = Number(lantern.baseScale) || 1;
@@ -2970,9 +3042,8 @@ function updateEnvironment(t){
   /* Time UI update every 500ms */
   if (t - _lastTimeUIUpdate > 0.5){
     _lastTimeUIUpdate = t;
-    if (timeBackdrop.classList.contains('show')){
-      updateTimeUI();
-    }
+    // Keep the toolbar Sun/Moon icon current even while the clock is closed.
+    updateTimeUI();
   }
 }
 
@@ -2982,6 +3053,8 @@ function updateEnvironment(t){
 const clock = new THREE.Clock();
 
 function updateLanternLocalPhysics(l,dt,t){
+  dt = consumeLanternReleaseDelay(l, dt);
+  if (dt <= 0) return;
   l.age+=dt;
   const speed=l.maxSpeed*(1-Math.exp(-l.age*.55));
   l.group.position.y+=speed*dt;
@@ -3002,6 +3075,9 @@ function updateLanternLocalPhysics(l,dt,t){
   }
 }
 function updateLanternVisuals(l,dt,t){
+  l.group.visible = l.releaseDelay <= 0;
+  if(l.smokeTrail)l.smokeTrail.points.visible = l.group.visible;
+  if(!l.group.visible)return;
   const ud=l.body&&l.body.userData;
   if(ud&&ud.flameCore){
     const f1=1+Math.sin(t*11+l.phase)*.13;

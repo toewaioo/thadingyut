@@ -1,5 +1,6 @@
+import { consumeLanternReleaseDelay } from './lantern-arrival.js';
 const lanterns = new Map();
-const STRIDE = 11;
+const STRIDE = 12;
 
 function randomSkyPosition(){
   let x=0,z=0;
@@ -34,9 +35,11 @@ self.onmessage = (event) => {
   let offset=0;
 
   for(const state of lanterns.values()){
-    state.age+=dt;
+    const activeDt=consumeLanternReleaseDelay(state,dt);
+    if(activeDt>0){
+    state.age+=activeDt;
     const speed=state.maxSpeed*(1-Math.exp(-state.age*.55));
-    state.y+=speed*dt;
+    state.y+=speed*activeDt;
     const sway=state.swayAmp*(1-Math.exp(-state.age*.25));
     const windPush=wind.strength*8*(1-Math.exp(-state.age*.4));
     state.x=state.baseX+Math.sin(t*state.swayFreq+state.phase)*sway+wind.dirX*windPush*state.age*.06;
@@ -54,6 +57,7 @@ self.onmessage = (event) => {
       state.phase=Math.random()*Math.PI*2;
     }
 
+    }
     const progress=Math.min(1,state.age/1.3);
     const ease=1-Math.pow(1-progress,3);
     output[offset++]=state.id;
@@ -67,6 +71,7 @@ self.onmessage = (event) => {
     output[offset++]=state.baseX;
     output[offset++]=state.baseZ;
     output[offset++]=state.phase;
+    output[offset++]=state.releaseDelay;
   }
 
   self.postMessage({type:'frame',frameId:message.frameId,buffer:output.buffer},[output.buffer]);

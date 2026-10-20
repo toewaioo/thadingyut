@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import configHandler from './api/config.js';
 import supabaseHandler from './api/supabase.js';
+import wishCheckHandler from './api/wish-check.js';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
@@ -15,6 +16,7 @@ export default defineConfig(({ mode }) => {
         server.middlewares.use((req, res, next) => {
           const path = (req.url || '').split('?')[0];
           if (path === '/api/config') return configHandler(req, res);
+          if (path === '/api/wish-check') return wishCheckHandler(req, res);
           if (path === '/api/supabase' || path.startsWith('/api/supabase/')) return supabaseHandler(req, res);
           if (path.startsWith('/api/')) {
             res.statusCode = 404;

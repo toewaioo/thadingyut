@@ -63,6 +63,7 @@ export function startCommunityFeed({ fetcher = window.fetch.bind(window), onWish
   void refresh();
   const interval = setInterval(() => { if (!document.hidden) void refresh(); }, COMMUNITY_POLL_MS);
   window.addEventListener('thadingyut:data-change', onChange);
+  window.addEventListener('thadingyut:report-submitted', onChange);
   window.addEventListener('online', onVisible);
   document.addEventListener('visibilitychange', onVisible);
   return () => {
@@ -71,6 +72,7 @@ export function startCommunityFeed({ fetcher = window.fetch.bind(window), onWish
     clearInterval(interval);
     clearTimeout(timer);
     window.removeEventListener('thadingyut:data-change', onChange);
+    window.removeEventListener('thadingyut:report-submitted', onChange);
     window.removeEventListener('online', onVisible);
     document.removeEventListener('visibilitychange', onVisible);
   };

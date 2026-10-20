@@ -2,10 +2,14 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { toCloudProxyInput } from './cloud-route.js';
 import { startCommunityFeed } from './community-feed.js';
+import { bindWishReporting } from './wish-reporting.js';
+import { loadOwnHiddenWishSources } from './own-wish-visibility.js';
+import { SUITABILITY_MESSAGE } from './wish-suitability.js';
 import legacyMarkup from './legacy-ui.html?raw';
 import './app.css';
 
 const CLOUD_REQUEST_TIMEOUT_MS = 8000;
+const isSuitabilityError = error => error?.code === 'WISH_UNSUITABLE' || error?.message === 'WISH_UNSUITABLE';
 
 const STORAGE_KEYS = {
   preferences: 'thadingyut_prefs_v2',
@@ -58,6 +62,28 @@ export default function App() {
     let listener;
     let cloudActive = false;
     let usingLocalFallback = false;
+    let suitabilitySyncBlocked = false;
+    let visibilityPending;
+    window.__thadingyutHiddenLocalSourceIds = [];
+    window.__thadingyutHiddenLocalWishKeys = [];
+    const refreshOwnVisibility = () => {
+      if (!cloudActive || !client || !ownerId || disposed) return Promise.resolve();
+      if (visibilityPending) return visibilityPending;
+      visibilityPending = withCloudTimeout(() => loadOwnHiddenWishSources(client), 'Wish visibility')
+        .then((hidden) => {
+          if (disposed) return;
+          window.__thadingyutHiddenLocalSourceIds = hidden.sourceIds;
+          window.__thadingyutHiddenLocalWishKeys = hidden.legacyWishKeys;
+          window.dispatchEvent(new CustomEvent('thadingyut:own-wish-visibility', { detail: hidden }));
+        })
+        .catch(() => {
+          // Preserve the last confirmed display state; never erase or rewrite wishes.
+          if (!disposed) console.warn('Own wish visibility refresh unavailable; retrying on next sky refresh.');
+        })
+        .finally(() => { visibilityPending = undefined; });
+      return visibilityPending;
+    };
+    const stopWishReporting = bindWishReporting({ getClient: () => cloudActive ? client : null });
     const cloudAbortController = new AbortController();
     let resolveInitialSky;
     const initialSkyReady = new Promise(resolve => { resolveInitialSky = resolve; });
@@ -70,6 +96,7 @@ export default function App() {
         resolveInitialSky();
         window.dispatchEvent(new CustomEvent('thadingyut:community-wishes', { detail: wishes }));
         setCommunityStatus(`အများဆုတောင်း ${wishes.length} ခု`);
+        void refreshOwnVisibility();
       },
       onError: () => {
         window.clearTimeout(initialSkyTimer);
@@ -148,8 +175,18 @@ export default function App() {
           'Cloud save',
         );
         if (error) throw error;
-        if (cloudActive) setStatus('Cloud sync active');
+        if (cloudActive) {
+          suitabilitySyncBlocked = false;
+          setStatus('Cloud sync active');
+          void refreshOwnVisibility();
+        }
       } catch (error) {
+        if (isSuitabilityError(error)) {
+          suitabilitySyncBlocked = true;
+          setStatus(SUITABILITY_MESSAGE);
+          window.dispatchEvent(new CustomEvent('thadingyut:wish-rejected', { detail: { message: SUITABILITY_MESSAGE } }));
+          return;
+        }
         useLocalMode(error);
       }
     };
@@ -229,17 +266,21 @@ export default function App() {
               { onConflict: 'owner_id' },
             );
           if (usingLocalFallback || disposed) return;
-          if (seedError) throw seedError;
+          if (seedError) {
+            if (isSuitabilityError(seedError)) suitabilitySyncBlocked = true;
+            else throw seedError;
+          }
         }, 'Cloud startup');
 
         if (!usingLocalFallback && !disposed) {
           cloudActive = true;
+          await refreshOwnVisibility();
           listener = () => {
             window.clearTimeout(syncTimer);
             syncTimer = window.setTimeout(saveCloudState, 650);
           };
           window.addEventListener('thadingyut:data-change', listener);
-          setStatus('Cloud sync active');
+          setStatus(suitabilitySyncBlocked ? SUITABILITY_MESSAGE : 'Cloud sync active');
         }
       } catch (error) {
         useLocalMode(error);
@@ -254,6 +295,7 @@ export default function App() {
       disposed = true;
       cloudActive = false;
       stopCommunityFeed();
+      stopWishReporting();
       window.clearTimeout(initialSkyTimer);
       resolveInitialSky();
       window.clearTimeout(syncTimer);

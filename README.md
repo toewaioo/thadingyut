@@ -1,5 +1,19 @@
 # သီတင်းကျွတ် ဆုတောင်းမယ် — Server-side Supabase Proxy
 
+## Wish reporting: temporarily hide after three distinct reporters
+
+Open a database-backed lantern's wish card and choose **မသင့်လျော်သော ဆုတောင်းကို တိုင်ကြားရန်**. Select a reason, optionally add details, and submit. Reports require the existing cloud/anonymous sign-in connection. Ambient/demo and not-yet-synced local lanterns cannot be reported; a local wish becomes reportable after it appears in the database feed and its card is reopened. Reports are stored privately.
+
+**Approved policy:** automatically exclude a wish from the public sky when three distinct authenticated user IDs have active reports against it. One identity counts once. The wish is temporarily hidden, **not deleted**. Private owner records and sync remain unchanged. Pending/reviewed reports count; dismissed reports do not. A private human review can restore a wish by dismissing enough reports to reduce the active count below three. No timed expiry has been selected.
+
+**Deployment order:** apply `20261020000100_wish_reports.sql` if not already applied, then `20261020000200_three_report_visibility.sql`, before redeploying the full source with `api/` functions. For a new database apply all migrations in filename order. Never rerun applied historical migrations on an existing project. Environment variables are unchanged; never put a service-role key in the app. See [DEPLOYMENT.md](DEPLOYMENT.md).
+
+**Private review:** authorized database operators use the queue and review SQL in [MODERATION.md](MODERATION.md). Browser roles cannot read reports or the moderation queue. The owner-scoped visibility RPC exposes only the signed-in owner's display metadata (including matching JSON for ID-less legacy records) so local sync copies do not reappear in the online sky.
+
+The existing 60/100-lantern display rules apply to the visible feed. No wish archive/profile record is removed or changed by the threshold. Existing active reports count as soon as the new migration is applied. Offline/cached copies and old text-bearing share links cannot be revoked. Three user IDs do not prove three humans; anonymous identity resets are an abuse limitation.
+
+Run `npm ci`, `npm test`, and `npm run build`. Local PostgreSQL tests are documented in `MODERATION.md`. Nothing in this ZIP has been deployed or applied to a hosted database.
+
 ## ယခုအပြောင်းအလဲ — စာရင်းမပါ၊ ကောင်းကင်တွင် ဆုတောင်းမီးပုံးများ ဆက်ပြမည်
 
 ဆုတောင်းစာရင်းကြည့်သည့် ခလုတ်၊ badge နှင့် စာရင်း dialog ကို ဖယ်ရှားထားသည်။ ဆုတောင်းစာရေးခြင်း၊ မီးပုံးလွှတ်ခြင်း၊ ကောင်းကင်ရှိ မီးပုံးကိုနှိပ်၍ ဆုတောင်းကတ်ကြည့်ခြင်းနှင့် မျှဝေခြင်းတို့ ဆက်ရှိပါသည်။

@@ -1,3 +1,5 @@
+import { legacyWishKey } from './own-wish-visibility.js';
+
 export const DEFAULT_WISH_COUNT = 60;
 export const MAX_LANTERNS = 100;
 export const MAX_EXTRA_WISH_LANTERNS = MAX_LANTERNS - DEFAULT_WISH_COUNT;
@@ -15,7 +17,7 @@ function databaseKey(wish) {
   return `text:${String(wish?.text || '')}\u0000${timeValue(wish?.at)}`;
 }
 
-function localKey(wish) {
+export function localKey(wish) {
   if (wish?.id != null) return `id:${String(wish.id)}`;
   return `text:${String(wish?.text || '')}\u0000${timeValue(wish?.at)}`;
 }
@@ -32,6 +34,8 @@ function newestFirst(a, b) {
 export function planSkyLanterns({
   databaseWishes = [],
   localWishes = [],
+  hiddenLocalSourceIds = [],
+  hiddenLocalWishKeys = [],
   ambientCount = DEFAULT_WISH_COUNT,
   maxLanterns = MAX_LANTERNS
 } = {}) {
@@ -39,8 +43,11 @@ export function planSkyLanterns({
   const database = Array.isArray(databaseWishes)
     ? databaseWishes.filter(wish => wish && typeof wish.text === 'string' && wish.text.trim())
     : [];
+  const hiddenLocal = new Set(hiddenLocalSourceIds.map(String));
+  const hiddenLegacy = new Set(hiddenLocalWishKeys);
   const local = Array.isArray(localWishes)
-    ? localWishes.filter(wish => wish && typeof wish.text === 'string' && wish.text.trim())
+    ? localWishes.filter(wish => wish && typeof wish.text === 'string' && wish.text.trim() &&
+        !hiddenLocal.has(String(wish.id)) && !hiddenLegacy.has(legacyWishKey(wish)))
     : [];
   const databaseOnly = completeDatabaseCount > DEFAULT_WISH_COUNT;
   const capacity = Math.max(0, Math.floor(maxLanterns));

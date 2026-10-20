@@ -53,3 +53,47 @@ body.day-mode .cloud-status {
     font-size: 9px;
   }
 }
+
+.wish-report-controls { margin-top: 16px; text-align: left; }
+.wish-report-controls [hidden] { display: none !important; }
+.wish-report-controls > button { width: 100%; justify-content: center; }
+.wish-report-form { display: grid; gap: 8px; margin-top: 12px; }
+.wish-report-form label, .report-note { font-size: 12px; line-height: 1.8; }
+.wish-report-form select, .wish-report-form textarea {
+  box-sizing: border-box; width: 100%; min-height: 44px; padding: 10px;
+  border: 1px solid rgba(255,190,90,.35); border-radius: 10px;
+  background: #171326; color: #ffe5ba; font: inherit; font-size: 14px;
+}
+.wish-report-form textarea { resize: vertical; }
+.report-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.report-actions button { min-height: 44px; flex: 1; }
+.wish-report-controls button:disabled { opacity: .55; cursor: default; }
+.wish-report-controls :focus-visible { outline: 2px solid #ffd08a; outline-offset: 3px; }
+.report-note:empty { display: none; }
+#cardBackdrop .card-modal { max-height: calc(100dvh - 32px); overflow-y: auto; }
+
+.wish-suitability-error { color: #ffb5ac; background: rgba(148, 28, 36, .18); border: 1px solid rgba(255, 154, 145, .35); border-radius: 10px; padding: 10px 12px; margin: 10px 0; font-size: 13px; line-height: 1.8; }
+.wish-suitability-error[hidden] { display: none; }
+.launch-submit[aria-busy="true"] { opacity: .65; cursor: wait; }
+#wish[aria-invalid="true"] { border-color: #ffb5ac; }
+
+/* Put reporting before the wish body: discoverable even on a small screen. */
+.wish-report-controls { margin: 12px 0 18px; }
+.wish-report-controls .report-wish-button {
+  display: flex; width: 100%; min-height: 48px; padding: 11px 14px;
+  border: 1px solid #eaa881; background: #4b2936; color: #fff1e7;
+  font-size: 14px; font-weight: 700; line-height: 1.8;
+}
+.wish-report-controls .report-wish-button:disabled { opacity: .7; }
+.report-discovery-hint {
+  position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%);
+  width: min(500px, calc(100vw - 32px)); margin: 0; padding: 7px 12px;
+  border-radius: 12px; background: rgba(14, 12, 26, .78); color: #f7ddb4;
+  font-size: 12px; line-height: 1.8; text-align: center; pointer-events: none;
+}
+.photo-mode .report-discovery-hint, .scene-unavailable .report-discovery-hint { display: none; }
+@media (max-width: 600px) {
+  #cardBackdrop .card-modal { padding: 22px 18px; }
+  #cardBackdrop .lantern-emblem { transform: scale(.8); margin-top: -12px; margin-bottom: -20px; }
+  .report-discovery-hint { bottom: calc(96px + env(safe-area-inset-bottom, 0px)); font-size: 11px; }
+}
